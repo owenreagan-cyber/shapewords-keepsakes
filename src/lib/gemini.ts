@@ -22,16 +22,20 @@ export interface ExpansionResponse {
   design: DesignSpec;
 }
 
-const API_BASE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+const API_BASE =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
 function getKey(): string {
-  const k = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+  const k = import.meta.env?.VITE_GEMINI_API_KEY;
   if (!k) throw new Error("Missing VITE_GEMINI_API_KEY in environment");
   return k;
 }
 
 function stripFences(s: string): string {
-  return s.replace(/^```(?:json|svg|xml)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  return s
+    .replace(/^```(?:json|svg|xml)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
 }
 
 async function callGemini(systemInstruction: string, userPrompt: string): Promise<string> {
@@ -88,7 +92,10 @@ CRITICAL RULES:
 (7) Use <path> elements with smooth bold curves. Merge small disconnected parts into the main mass when possible.
 (8) The shape should nearly touch the viewBox edges on at least two sides — push it large, do not leave generous padding.
 (9) Self-check before output: would this silhouette, if filled solid black, cover roughly three-quarters of a 1000x1000 square? If not, make it bigger and thicker.`;
-  const text = await callGemini(sys, `Generate the BOLD, MASSIVE SVG silhouette now for: ${shapeDescription}. Remember: minimum 75% viewBox fill, inflated proportions, no thin parts.`);
+  const text = await callGemini(
+    sys,
+    `Generate the BOLD, MASSIVE SVG silhouette now for: ${shapeDescription}. Remember: minimum 75% viewBox fill, inflated proportions, no thin parts.`,
+  );
   const m = text.match(/<svg[\s\S]*<\/svg>/i);
   return m ? m[0] : text;
 }
