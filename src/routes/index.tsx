@@ -9,21 +9,23 @@ import {
   OPTIMIZATION_PRESETS,
   type Student,
 } from "@/lib/students";
-import {
-  callShapeGen,
-  callWordExpansion,
-  FALLBACK_HEART_SVG,
-  type WordEntry,
-} from "@/lib/gemini";
+import { callShapeGen, callWordExpansion, FALLBACK_HEART_SVG, type WordEntry } from "@/lib/gemini";
 import { buildMaskFromSvg, packWords } from "@/lib/wordPacker";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "ShapeWords Studio — Word Art Generator" },
-      { name: "description", content: "Professional word art generator for Grade 4 classroom keepsakes. Print-ready 8x10 @ 300 DPI." },
+      {
+        name: "description",
+        content:
+          "Professional word art generator for Grade 4 classroom keepsakes. Print-ready 8x10 @ 300 DPI.",
+      },
       { property: "og:title", content: "ShapeWords Studio" },
-      { property: "og:description", content: "Professional word art generator for classroom keepsakes." },
+      {
+        property: "og:description",
+        content: "Professional word art generator for classroom keepsakes.",
+      },
     ],
   }),
   component: ShapeWordsApp,
@@ -146,9 +148,13 @@ function ShapeWordsApp() {
       canvas.height = height;
       const ctx = canvas.getContext("2d")!;
       if (!maskRef.current) {
-        maskRef.current = { mask: await buildMaskFromSvg(shapeOverride ?? shapeSvg, 512), size: 512 };
+        maskRef.current = {
+          mask: await buildMaskFromSvg(shapeOverride ?? shapeSvg, 512),
+          size: 512,
+        };
       }
-      const rawWordSet: WordEntry[] = wordsOverride ?? (words.length > 0 ? words : seedFromTraits(active.name, traitsField));
+      const rawWordSet: WordEntry[] =
+        wordsOverride ?? (words.length > 0 ? words : seedFromTraits(active.name, traitsField));
       const wordSet = normalizeWordEntries(nameField, rawWordSet, traitsField);
       const accent = active.colorPalette[1] ?? "#D97706";
       const typography = pickTypographyPair(config.fontFamily, config.etsyMode);
@@ -240,7 +246,11 @@ function ShapeWordsApp() {
         attempt++;
         setStatus(`Refining layout (${attempt}/${maxAttempts})...`);
         const next = await renderToCanvas(undefined, undefined, generatedWords, svg);
-        if (!best || (next && next.balanceScore + next.coverage * 100 > best.balanceScore + best.coverage * 100)) {
+        if (
+          !best ||
+          (next &&
+            next.balanceScore + next.coverage * 100 > best.balanceScore + best.coverage * 100)
+        ) {
           best = next;
         }
       }
@@ -364,7 +374,11 @@ function ShapeWordsApp() {
 
           <Section title="Student Data">
             <Field label="Student Name">
-              <input value={nameField} onChange={(e) => setNameField(e.target.value)} className={inputCls} />
+              <input
+                value={nameField}
+                onChange={(e) => setNameField(e.target.value)}
+                className={inputCls}
+              />
             </Field>
             <Field label="Traits / Words">
               <textarea
@@ -432,19 +446,63 @@ function ShapeWordsApp() {
               valueLabel={["", "None", "Low", "Medium", "High", "Extreme"][config.emphasis]}
               onChange={(v) => setConfig((c) => ({ ...c, emphasis: v }))}
             />
-            <Slider label="Density" min={10} max={100} value={config.density} valueLabel={config.density + "%"} onChange={(v) => setConfig((c) => ({ ...c, density: v }))} />
-            <Slider label="Word Scaling" min={10} max={50} value={config.scaling} valueLabel={(config.scaling / 10).toFixed(1) + "x"} onChange={(v) => setConfig((c) => ({ ...c, scaling: v }))} />
-            <Slider label="Shape Adherence" min={10} max={100} value={config.adherence} valueLabel={config.adherence + "%"} onChange={(v) => setConfig((c) => ({ ...c, adherence: v }))} />
-            <Slider label="Rotation Chance" min={0} max={100} value={config.rotation} valueLabel={config.rotation + "%"} onChange={(v) => setConfig((c) => ({ ...c, rotation: v }))} />
-            <Slider label="Randomness" min={0} max={100} value={config.randomness} valueLabel={config.randomness + "%"} onChange={(v) => setConfig((c) => ({ ...c, randomness: v }))} />
-            <Slider label="Center Bias" min={0} max={100} value={config.centerBias} valueLabel={config.centerBias + "%"} onChange={(v) => setConfig((c) => ({ ...c, centerBias: v }))} />
+            <Slider
+              label="Density"
+              min={10}
+              max={100}
+              value={config.density}
+              valueLabel={config.density + "%"}
+              onChange={(v) => setConfig((c) => ({ ...c, density: v }))}
+            />
+            <Slider
+              label="Word Scaling"
+              min={10}
+              max={50}
+              value={config.scaling}
+              valueLabel={(config.scaling / 10).toFixed(1) + "x"}
+              onChange={(v) => setConfig((c) => ({ ...c, scaling: v }))}
+            />
+            <Slider
+              label="Shape Adherence"
+              min={10}
+              max={100}
+              value={config.adherence}
+              valueLabel={config.adherence + "%"}
+              onChange={(v) => setConfig((c) => ({ ...c, adherence: v }))}
+            />
+            <Slider
+              label="Rotation Chance"
+              min={0}
+              max={100}
+              value={config.rotation}
+              valueLabel={config.rotation + "%"}
+              onChange={(v) => setConfig((c) => ({ ...c, rotation: v }))}
+            />
+            <Slider
+              label="Randomness"
+              min={0}
+              max={100}
+              value={config.randomness}
+              valueLabel={config.randomness + "%"}
+              onChange={(v) => setConfig((c) => ({ ...c, randomness: v }))}
+            />
+            <Slider
+              label="Center Bias"
+              min={0}
+              max={100}
+              value={config.centerBias}
+              valueLabel={config.centerBias + "%"}
+              onChange={(v) => setConfig((c) => ({ ...c, centerBias: v }))}
+            />
           </Section>
 
           <Section title="Export Resolution">
             <Field label="Resolution">
               <Select
                 value={config.resolution}
-                onChange={(v) => setConfig((c) => ({ ...c, resolution: v as Config["resolution"] }))}
+                onChange={(v) =>
+                  setConfig((c) => ({ ...c, resolution: v as Config["resolution"] }))
+                }
                 options={[
                   { value: "preview", label: EXPORT_RES.preview.label },
                   { value: "print", label: EXPORT_RES.print.label },
@@ -491,7 +549,9 @@ function ShapeWordsApp() {
               {(status || busy) && (
                 <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
                   <div className="w-10 h-10 border-2 border-amber-accent border-t-transparent rounded-full animate-spin" />
-                  <div className="text-amber-accent text-xs tracking-widest uppercase">{status || "Working..."}</div>
+                  <div className="text-amber-accent text-xs tracking-widest uppercase">
+                    {status || "Working..."}
+                  </div>
                   {batchProgress && (
                     <div className="w-64 h-1 bg-panel-border mt-2">
                       <div
@@ -535,7 +595,12 @@ function ShapeWordsApp() {
             <h2 className="font-display text-lg tracking-wider">CLASS ROSTER</h2>
             <label className="text-[10px] tracking-widest uppercase text-amber-accent cursor-pointer hover:underline">
               Import CSV
-              <input type="file" accept=".csv" className="hidden" onChange={() => alert("CSV import: stub")} />
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={() => alert("CSV import: stub")}
+              />
             </label>
           </div>
 
@@ -573,7 +638,9 @@ function ShapeWordsApp() {
             </div>
             {quality && (
               <div className="border border-panel-border p-2 bg-input/40 space-y-1">
-                <div className="text-[10px] tracking-widest uppercase text-amber-accent">Live quality scoring</div>
+                <div className="text-[10px] tracking-widest uppercase text-amber-accent">
+                  Live quality scoring
+                </div>
                 <QualityRow label="Overall" value={quality.overall} />
                 <QualityRow label="Shape" value={quality.shapeRecognition} />
                 <QualityRow label="Diversity" value={quality.wordDiversity} />
@@ -848,7 +915,11 @@ function normalizeWordEntries(name: string, entries: WordEntry[], traits: string
     const key = clean.toLowerCase();
     if (clean && !seen.has(key)) {
       seen.add(key);
-      normalized.push({ word: clean, category: "Character", importanceScore: 20 + (normalized.length % 20) });
+      normalized.push({
+        word: clean,
+        category: "Character",
+        importanceScore: 20 + (normalized.length % 20),
+      });
     } else if (traitWords.length) {
       const trait = traitWords[normalized.length % traitWords.length];
       const variant = sanitizeWord(`${trait} excellence`);
@@ -875,7 +946,11 @@ function seedFromTraits(name: string, traits: string): WordEntry[] {
   entries.push({ word: name, category: "Name", importanceScore: 1000 });
   list.forEach((t) => entries.push({ word: t, category: "Character", importanceScore: 90 }));
   PROFESSIONAL_FILLER.forEach((w, i) =>
-    entries.push({ word: w, category: "Character", importanceScore: i < 40 ? 55 : i < 90 ? 35 : 20 }),
+    entries.push({
+      word: w,
+      category: "Character",
+      importanceScore: i < 40 ? 55 : i < 90 ? 35 : 20,
+    }),
   );
   return entries;
 }
@@ -891,15 +966,19 @@ function pickTypographyPair(fontFamily: string, etsyMode: boolean) {
   return { nameFont: "Playfair Display", bodyFont: "Inter" };
 }
 
-function scoreLayout(result: Awaited<ReturnType<typeof packWords>>, words: WordEntry[], config: Config): QualityScores {
+function scoreLayout(
+  result: Awaited<ReturnType<typeof packWords>>,
+  words: WordEntry[],
+  config: Config,
+): QualityScores {
   const sourceUnique = new Set(words.map((w) => w.word.toLowerCase())).size;
   const sourceDiversity = clamp((sourceUnique / 220) * 100, 0, 100);
-  const wordDiversity = clamp((sourceDiversity * 0.6) + (result.diversityScore * 0.4), 0, 100);
+  const wordDiversity = clamp(sourceDiversity * 0.6 + result.diversityScore * 0.4, 0, 100);
   const coverage = clamp(100 - Math.abs(result.coverage - 0.94) * 320, 0, 100);
   const typography =
     clamp(100 - Math.abs(result.nameAreaPct - 11.5) * 5, 0, 100) * 0.6 +
     clamp(100 - Math.abs(result.accentRatio - 15) * 4, 0, 100) * 0.4;
-  const shapeRecognition = clamp((result.coverage * 100 * 0.6) + (result.balanceScore * 0.4), 0, 100);
+  const shapeRecognition = clamp(result.coverage * 100 * 0.6 + result.balanceScore * 0.4, 0, 100);
   const printQuality = clamp(
     92 - Math.max(0, result.duplicateCount - 6) * 0.15 - (config.etsyMode ? 0 : 3),
     0,
@@ -926,7 +1005,12 @@ function scoreLayout(result: Awaited<ReturnType<typeof packWords>>, words: WordE
   };
 }
 
-function drawShapeOutline(ctx: CanvasRenderingContext2D, svg: string, width: number, height: number) {
+function drawShapeOutline(
+  ctx: CanvasRenderingContext2D,
+  svg: string,
+  width: number,
+  height: number,
+) {
   const viewBoxMatch = svg.match(/viewBox=["']([\d.\s-]+)["']/i);
   const [vbX, vbY, vbW, vbH] = (viewBoxMatch?.[1] || "0 0 1000 1000")
     .split(/\s+/)
@@ -953,7 +1037,15 @@ function drawShapeOutline(ctx: CanvasRenderingContext2D, svg: string, width: num
 const inputCls =
   "w-full bg-input border border-panel-border px-2 py-1.5 text-sm text-foreground focus:border-amber-accent focus:outline-none focus:ring-0";
 
-function Section({ title, children, tinted }: { title: string; children: React.ReactNode; tinted?: boolean }) {
+function Section({
+  title,
+  children,
+  tinted,
+}: {
+  title: string;
+  children: React.ReactNode;
+  tinted?: boolean;
+}) {
   return (
     <div className={`px-4 py-3 border-b border-panel-border ${tinted ? "" : ""}`}>
       <h3 className="label-mini mb-3">{title}</h3>
@@ -981,7 +1073,11 @@ function Select({
   options: (string | { value: string; label: string })[];
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={inputCls + " cursor-pointer"}>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={inputCls + " cursor-pointer"}
+    >
       {options.map((o) => {
         const v = typeof o === "string" ? o : o.value;
         const l = typeof o === "string" ? o : o.label;

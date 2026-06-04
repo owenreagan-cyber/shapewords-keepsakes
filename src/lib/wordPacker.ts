@@ -102,7 +102,8 @@ class Grid {
       for (let y = y0; y <= y1; y++) {
         const k = this.key(x, y);
         const arr = this.cells.get(k);
-        if (arr) arr.push(b); else this.cells.set(k, [b]);
+        if (arr) arr.push(b);
+        else this.cells.set(k, [b]);
       }
     }
   }
@@ -181,7 +182,13 @@ export async function packWords(
     else bottomWeight += area;
   }
 
-  function place(word: string, fontSize: number, color: string, allowRotate: boolean, mustBeInMask: boolean): boolean {
+  function place(
+    word: string,
+    fontSize: number,
+    color: string,
+    allowRotate: boolean,
+    mustBeInMask: boolean,
+  ): boolean {
     const angles = allowRotate && Math.random() < rotChance ? [Math.PI / 2] : [0];
     const angle = angles[0];
     ctx.font = `${fontSize}px "${bodyFont}", sans-serif`;
@@ -212,7 +219,7 @@ export async function packWords(
       }
 
       const insideMask =
-        maskAt(mask, maskSize, (x) / width, (y) / height) &&
+        maskAt(mask, maskSize, x / width, y / height) &&
         maskAt(mask, maskSize, box.x / width, box.y / height) &&
         maskAt(mask, maskSize, (box.x + box.w) / width, (box.y + box.h) / height);
 
@@ -284,7 +291,9 @@ export async function packWords(
   }
 
   // Tier 3: supporting 40-84
-  const tier3 = rest.filter((w) => w.importanceScore >= 40 && w.importanceScore < 85).slice(0, etsy ? 55 : 80);
+  const tier3 = rest
+    .filter((w) => w.importanceScore >= 40 && w.importanceScore < 85)
+    .slice(0, etsy ? 55 : 80);
   const densityMul = (opts.density / 100) * (etsy ? 0.82 : 1);
   for (const w of tier3) {
     if (Math.random() > densityMul) continue;
@@ -294,10 +303,12 @@ export async function packWords(
   }
 
   // Tier 4: filler 10-39
-  const tier4 = rest.filter((w) => w.importanceScore >= 10 && w.importanceScore < 40).slice(0, etsy ? 140 : 200);
+  const tier4 = rest
+    .filter((w) => w.importanceScore >= 10 && w.importanceScore < 40)
+    .slice(0, etsy ? 140 : 200);
   for (const w of tier4) {
     if (Math.random() > densityMul) continue;
-    const fs = (height * (etsy ? 0.011 : 0.013)) + (Math.random() - 0.5) * 2;
+    const fs = height * (etsy ? 0.011 : 0.013) + (Math.random() - 0.5) * 2;
     const color = Math.random() < (etsy ? 0.08 : 0.12) ? accent : primary;
     place(w.word, fs, color, !etsy, Math.random() < adherence);
   }
@@ -323,7 +334,7 @@ export async function packWords(
   const lrDelta = Math.abs(leftWeight - rightWeight) / (leftWeight + rightWeight || 1);
   const tbDelta = Math.abs(topWeight - bottomWeight) / (topWeight + bottomWeight || 1);
   const balanceScore = Math.max(0, 100 - ((lrDelta + tbDelta) / 2) * 140);
-  const nameAreaPct = (nameBox.w * nameBox.h / (width * height)) * 100;
+  const nameAreaPct = ((nameBox.w * nameBox.h) / (width * height)) * 100;
   const accentRatio = (accentPlacements / Math.max(1, placedTotal)) * 100;
 
   return {
