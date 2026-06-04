@@ -340,7 +340,16 @@ function ShapeWordsApp() {
         syncState: true,
       });
     },
-    [config, currentStudent, maskOrientation, nameField, renderWordArt, shapeSvg, traitsField, words],
+    [
+      config,
+      currentStudent,
+      maskOrientation,
+      nameField,
+      renderWordArt,
+      shapeSvg,
+      traitsField,
+      words,
+    ],
   );
 
   // initial render on mount + config / student change
