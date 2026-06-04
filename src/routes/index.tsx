@@ -115,9 +115,10 @@ function ShapeWordsApp() {
   const workersRef = useRef<Set<Worker>>(new Set());
 
   useEffect(() => {
+    const workers = workersRef.current;
     return () => {
-      for (const worker of workersRef.current) worker.terminate();
-      workersRef.current.clear();
+      for (const worker of workers) worker.terminate();
+      workers.clear();
     };
   }, []);
 
@@ -199,7 +200,10 @@ function ShapeWordsApp() {
         };
 
         onProgress?.(0);
-        const request: WordPackerWorkerRequest = { type: "pack", payload: { mask, maskSize, opts } };
+        const request: WordPackerWorkerRequest = {
+          type: "pack",
+          payload: { mask, maskSize, opts },
+        };
         worker.postMessage(request);
       }),
     [],
@@ -1064,11 +1068,7 @@ function pickTypographyPair(fontFamily: string, etsyMode: boolean) {
   return { nameFont: "Playfair Display", bodyFont: "Inter" };
 }
 
-function scoreLayout(
-  result: PackResult,
-  words: WordEntry[],
-  config: Config,
-): QualityScores {
+function scoreLayout(result: PackResult, words: WordEntry[], config: Config): QualityScores {
   const sourceUnique = new Set(words.map((w) => w.word.toLowerCase())).size;
   const sourceDiversity = clamp((sourceUnique / 220) * 100, 0, 100);
   const wordDiversity = clamp(sourceDiversity * 0.6 + result.diversityScore * 0.4, 0, 100);
