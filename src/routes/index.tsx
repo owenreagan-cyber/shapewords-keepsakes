@@ -13,7 +13,9 @@ import {
 import { callShapeGen, callWordExpansion, FALLBACK_HEART_SVG, type WordEntry } from "@/lib/gemini";
 import {
   buildMaskFromSvg,
+  detectMaskOrientation,
   drawPlacements,
+  type MaskOrientation,
   type PackOptions,
   type PackResult,
   type WordPackerWorkerRequest,
@@ -47,7 +49,10 @@ const EXPORT_RES = {
   ultra: { w: 6000, h: 12000, label: "6000x12000px (Ultra)" },
 };
 
-const BATCH_EXPORT_RES = { w: 2400, h: 3000 };
+const ORIENTATION_OUTPUT_RES: Record<MaskOrientation, { w: number; h: number }> = {
+  portrait: { w: 2400, h: 3000 },
+  landscape: { w: 3000, h: 2400 },
+};
 
 type Config = {
   fontFamily: string;
@@ -108,6 +113,14 @@ function defaultConfig(s: Student): Config {
   };
 }
 
+function getCanvasSizeForResolution(
+  resolution: keyof typeof EXPORT_RES,
+  orientation: MaskOrientation,
+): { w: number; h: number } {
+  if (resolution === "print") return ORIENTATION_OUTPUT_RES[orientation];
+  return EXPORT_RES[resolution];
+}
+
 function ShapeWordsApp() {
   const [students, setStudents] = useState<Student[]>(STUDENTS);
   const [activeId, setActiveId] = useState(STUDENTS[0].id);
@@ -125,6 +138,7 @@ function ShapeWordsApp() {
   const [zoom, setZoom] = useState(100);
   const [batchProgress, setBatchProgress] = useState<{ i: number; total: number } | null>(null);
   const [packingProgress, setPackingProgress] = useState<number | null>(null);
+  const [maskOrientation, setMaskOrientation] = useState<MaskOrientation>("portrait");
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskRef = useRef<{ mask: Uint8Array; size: number } | null>(null);
@@ -156,15 +170,14 @@ function ShapeWordsApp() {
   // build mask whenever svg changes
   useEffect(() => {
     let cancel = false;
-    buildMaskFromSvg(shapeSvg, 512)
-      .then((m) => {
-        if (!cancel) maskRef.current = { mask: m, size: 512 };
-      })
-      .catch(() => {
-        buildMaskFromSvg(FALLBACK_HEART_SVG, 512).then((m) => {
-          if (!cancel) maskRef.current = { mask: m, size: 512 };
-        });
-      });
+    Promise.all([
+      buildMaskFromSvg(shapeSvg, 512).catch(() => buildMaskFromSvg(FALLBACK_HEART_SVG, 512)),
+      detectMaskOrientation(shapeSvg).catch(() => detectMaskOrientation(FALLBACK_HEART_SVG)),
+    ]).then(([mask, orientation]) => {
+      if (cancel) return;
+      maskRef.current = { mask, size: 512 };
+      setMaskOrientation(orientation);
+    });
     return () => {
       cancel = true;
     };
@@ -313,12 +326,13 @@ function ShapeWordsApp() {
               mask: await buildMaskFromSvg(svg, 512),
               size: 512,
             };
+      const orientation = shapeOverride ? await detectMaskOrientation(svg) : maskOrientation;
 
       return renderWordArt({
         canvas,
         student: currentStudent,
         config,
-        size: sizeOverride ?? EXPORT_RES[config.resolution],
+        size: sizeOverride ?? getCanvasSizeForResolution(config.resolution, orientation),
         svg,
         words: wordsOverride ?? (words.length > 0 ? words : seedFromTraits(nameField, traitsField)),
         mask: activeMask.mask,
@@ -326,7 +340,7 @@ function ShapeWordsApp() {
         syncState: true,
       });
     },
-    [config, currentStudent, nameField, renderWordArt, shapeSvg, traitsField, words],
+    [config, currentStudent, maskOrientation, nameField, renderWordArt, shapeSvg, traitsField, words],
   );
 
   // initial render on mount + config / student change
@@ -426,7 +440,7 @@ function ShapeWordsApp() {
   const handleDownload = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    await renderToCanvas(canvas, EXPORT_RES.print);
+    await renderToCanvas(canvas, getCanvasSizeForResolution("print", maskOrientation));
     const data = canvas.toDataURL("image/jpeg", 0.95);
     triggerDownload(data, `${nameField}_WordArt_8x10_300dpi.jpg`);
   };
@@ -468,6 +482,7 @@ function ShapeWordsApp() {
             return FALLBACK_HEART_SVG;
           }),
         ]);
+        const orientation = await detectMaskOrientation(svg);
         const mask = await buildMaskFromSvg(svg, 512);
 
         setPackingProgress(0);
@@ -475,7 +490,7 @@ function ShapeWordsApp() {
           canvas: off,
           student: s,
           config: studentConfig,
-          size: BATCH_EXPORT_RES,
+          size: ORIENTATION_OUTPUT_RES[orientation],
           svg,
           words: expansion?.words?.length ? expansion.words : seedFromTraits(s.name, s.traits),
           mask,
@@ -699,7 +714,7 @@ function ShapeWordsApp() {
             <div
               className="relative bg-white shadow-[0_0_60px_rgba(0,0,0,0.6)]"
               style={{
-                aspectRatio: `${EXPORT_RES[config.resolution].w} / ${EXPORT_RES[config.resolution].h}`,
+                aspectRatio: `${getCanvasSizeForResolution(config.resolution, maskOrientation).w} / ${getCanvasSizeForResolution(config.resolution, maskOrientation).h}`,
                 height: `${zoom}%`,
                 maxHeight: "100%",
                 maxWidth: "100%",
