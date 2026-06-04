@@ -65,6 +65,59 @@ export type WordPackerWorkerResponse =
   | { type: "complete"; payload: PackComputationResult }
   | { type: "error"; error: string };
 
+export type MaskOrientation = "landscape" | "portrait";
+
+function parseSvgLength(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number.parseFloat(value.trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseSvgDimensions(svg: string): { width: number; height: number } | null {
+  const viewBoxMatch = svg.match(/viewBox=["']([^"']+)["']/i);
+  if (viewBoxMatch) {
+    const parts = viewBoxMatch[1]
+      .trim()
+      .split(/[\s,]+/)
+      .map((n) => Number.parseFloat(n));
+    if (parts.length === 4 && Number.isFinite(parts[2]) && Number.isFinite(parts[3])) {
+      const width = Math.abs(parts[2]);
+      const height = Math.abs(parts[3]);
+      if (width > 0 && height > 0) return { width, height };
+    }
+  }
+
+  const widthMatch = svg.match(/<svg[^>]*\bwidth=["']([^"']+)["']/i);
+  const heightMatch = svg.match(/<svg[^>]*\bheight=["']([^"']+)["']/i);
+  const width = parseSvgLength(widthMatch?.[1] ?? null);
+  const height = parseSvgLength(heightMatch?.[1] ?? null);
+  if (width && height) return { width, height };
+  return null;
+}
+
+async function resolveSvgContent(svgOrUrl: string): Promise<string> {
+  const source = svgOrUrl.trim();
+  if (source.startsWith("<svg")) return source;
+
+  const response = await fetch(source);
+  if (!response.ok) {
+    throw new Error(`Failed to load SVG: ${response.status}`);
+  }
+  return response.text();
+}
+
+export async function detectMaskOrientation(svgOrUrl: string): Promise<MaskOrientation> {
+  try {
+    const svg = await resolveSvgContent(svgOrUrl);
+    const dimensions = parseSvgDimensions(svg);
+    if (!dimensions) return "portrait";
+    return dimensions.width > dimensions.height ? "landscape" : "portrait";
+  } catch {
+    return "portrait";
+  }
+}
+
 // Build alpha mask from an SVG string. Returns 0/1 array sized maskSize x maskSize.
 export async function buildMaskFromSvg(svg: string, maskSize = 512): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
