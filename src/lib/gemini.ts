@@ -76,8 +76,19 @@ Return ONLY JSON matching:
 }
 
 export async function callShapeGen(shapeDescription: string, style: string): Promise<string> {
-  const sys = `You are an expert SVG designer. Create a clean solid black vector silhouette of: ${shapeDescription} in style ${style}. Rules: (1) Output ONLY valid SVG, no markdown, no explanation, no backticks. (2) viewBox='0 0 1000 1000'. (3) Single solid black fill #000000, no strokes, no gradients, no outlines. (4) No background element. (5) Bold, immediately recognizable from 10 feet away. (6) Preserve all major landmarks: limbs, ears, action pose details. (7) Use <path> elements with smooth curves. (8) This will be used as an alpha mask - every black pixel is where words appear. (9) The silhouette must fill at least 70% of the viewBox with bold mass.`;
-  const text = await callGemini(sys, `Generate the SVG now for: ${shapeDescription}`);
+  const sys = `You are an expert SVG designer creating BOLD, MASSIVE silhouettes for word-art alpha masks. Subject: ${shapeDescription}. Style: ${style}.
+
+CRITICAL RULES:
+(1) Output ONLY valid SVG, no markdown, no explanation, no backticks.
+(2) viewBox='0 0 1000 1000'.
+(3) Single solid black fill #000000, no strokes, no gradients, no outlines, no background element.
+(4) MAXIMUM BOLDNESS AND MASS — the silhouette MUST fill AT LEAST 75% of the viewBox area with solid black. This is a HARD requirement: thin limbs, narrow tails, and skinny appendages MUST be thickened dramatically (2-4x their natural proportion) so words can fit inside them. Better to look chunky and chubby than thin and elegant.
+(5) Inflate every body part: thicken legs, widen arms, fatten torsos, bulk up heads. Think "plush toy" or "balloon animal" proportions, not realistic anatomy.
+(6) Preserve and EXAGGERATE iconic landmarks (ears, action pose, characteristic features) so the silhouette is recognizable from 10 feet away.
+(7) Use <path> elements with smooth bold curves. Merge small disconnected parts into the main mass when possible.
+(8) The shape should nearly touch the viewBox edges on at least two sides — push it large, do not leave generous padding.
+(9) Self-check before output: would this silhouette, if filled solid black, cover roughly three-quarters of a 1000x1000 square? If not, make it bigger and thicker.`;
+  const text = await callGemini(sys, `Generate the BOLD, MASSIVE SVG silhouette now for: ${shapeDescription}. Remember: minimum 75% viewBox fill, inflated proportions, no thin parts.`);
   const m = text.match(/<svg[\s\S]*<\/svg>/i);
   return m ? m[0] : text;
 }
