@@ -31,8 +31,9 @@ export const Route = createFileRoute("/")({
 
 const EXPORT_RES = {
   preview: { w: 1200, h: 1500, label: "1200px (Preview)" },
-  print: { w: 2400, h: 3000, label: "2400x3000px (8x10 @ 300 DPI)" },
-  large: { w: 3600, h: 4500, label: "4500px (Large Print)" },
+  print: { w: 3000, h: 3750, label: "3000x3750px (8x10 @ 300 DPI)" },
+  tall: { w: 3000, h: 6000, label: "3000x6000px (5x10 @ 300 DPI)" },
+  ultra: { w: 6000, h: 12000, label: "6000x12000px (Ultra)" },
 };
 
 type Config = {
@@ -48,6 +49,19 @@ type Config = {
   silhouetteStyle: string;
   preset: string;
   resolution: keyof typeof EXPORT_RES;
+  etsyMode: boolean;
+};
+
+type QualityScores = {
+  shapeRecognition: number;
+  wordDiversity: number;
+  visualBalance: number;
+  printQuality: number;
+  typography: number;
+  coverage: number;
+  overall: number;
+  uniqueWords: number;
+  duplicateWords: number;
 };
 
 function defaultConfig(s: Student): Config {
@@ -64,6 +78,7 @@ function defaultConfig(s: Student): Config {
     silhouetteStyle: "Premium Print",
     preset: "Premium Print",
     resolution: "print",
+    etsyMode: true,
   };
 }
 
@@ -80,6 +95,7 @@ function ShapeWordsApp() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [placedCount, setPlacedCount] = useState(0);
+  const [quality, setQuality] = useState<QualityScores | null>(null);
   const [zoom, setZoom] = useState(100);
   const [batchProgress, setBatchProgress] = useState<{ i: number; total: number } | null>(null);
 
@@ -94,6 +110,7 @@ function ShapeWordsApp() {
     setConfig(defaultConfig(active));
     setWords([]);
     setShapeSvg(FALLBACK_HEART_SVG);
+    setQuality(null);
   }, [activeId]); // eslint-disable-line
 
   // build mask whenever svg changes
@@ -114,7 +131,12 @@ function ShapeWordsApp() {
   }, [shapeSvg]);
 
   const renderToCanvas = useCallback(
-    async (targetCanvas?: HTMLCanvasElement, sizeOverride?: { w: number; h: number }) => {
+    async (
+      targetCanvas?: HTMLCanvasElement,
+      sizeOverride?: { w: number; h: number },
+      wordsOverride?: WordEntry[],
+      shapeOverride?: string,
+    ) => {
       const canvas = targetCanvas ?? canvasRef.current;
       if (!canvas) return null;
       const res = sizeOverride ?? EXPORT_RES[config.resolution];
@@ -124,18 +146,20 @@ function ShapeWordsApp() {
       canvas.height = height;
       const ctx = canvas.getContext("2d")!;
       if (!maskRef.current) {
-        maskRef.current = { mask: await buildMaskFromSvg(shapeSvg, 512), size: 512 };
+        maskRef.current = { mask: await buildMaskFromSvg(shapeOverride ?? shapeSvg, 512), size: 512 };
       }
-      const wordSet: WordEntry[] = words.length > 0
-        ? words
-        : seedFromTraits(active.name, traitsField);
+      const rawWordSet: WordEntry[] = wordsOverride ?? (words.length > 0 ? words : seedFromTraits(active.name, traitsField));
+      const wordSet = normalizeWordEntries(nameField, rawWordSet, traitsField);
       const accent = active.colorPalette[1] ?? "#D97706";
+      const typography = pickTypographyPair(config.fontFamily, config.etsyMode);
       const result = await packWords(ctx, maskRef.current.mask, maskRef.current.size, {
         width,
         height,
         name: nameField,
         words: wordSet,
         fontFamily: config.fontFamily,
+        bodyFontFamily: typography.bodyFont,
+        nameFontFamily: typography.nameFont,
         accentColor: accent,
         primaryColor: active.colorPalette[0] ?? "#000000",
         bgColor: "#FFFFFF",
@@ -146,8 +170,11 @@ function ShapeWordsApp() {
         randomness: config.randomness,
         centerBias: config.centerBias,
         emphasis: config.emphasis,
+        etsyMode: config.etsyMode,
       });
+      drawShapeOutline(ctx, shapeOverride ?? shapeSvg, width, height);
       setPlacedCount(result.placedCount);
+      setQuality(scoreLayout(result, wordSet, config));
       return result;
     },
     [active, words, nameField, traitsField, shapeSvg, config],
@@ -185,29 +212,43 @@ function ShapeWordsApp() {
       ]);
       setStatus("Building mask...");
       setShapeSvg(svg);
-      if (expansion?.words?.length) {
-        setWords(expansion.words);
-        if (expansion.design) {
-          setConfig((c) => ({
-            ...c,
-            fontFamily: expansion.design.fontFamily || c.fontFamily,
-            density: clamp(expansion.design.density ?? c.density, 10, 100),
-            scaling: clamp(expansion.design.scaling ?? c.scaling, 10, 50),
-            adherence: clamp(expansion.design.adherence ?? c.adherence, 10, 100),
-            centerBias: clamp(expansion.design.centerBias ?? c.centerBias, 0, 100),
-            rotation: clamp(expansion.design.rotation ?? c.rotation, 0, 100),
-            randomness: clamp(expansion.design.randomness ?? c.randomness, 0, 100),
-          }));
-        }
+      maskRef.current = { mask: await buildMaskFromSvg(svg, 512), size: 512 };
+      const generatedWords = expansion?.words?.length
+        ? normalizeWordEntries(nameField, expansion.words, traitsField)
+        : normalizeWordEntries(nameField, seedFromTraits(active.name, traitsField), traitsField);
+      setWords(generatedWords);
+      if (expansion?.words?.length && expansion.design) {
+        setConfig((c) => ({
+          ...c,
+          fontFamily: expansion.design.fontFamily || c.fontFamily,
+          density: clamp(expansion.design.density ?? c.density, 10, 100),
+          scaling: clamp(expansion.design.scaling ?? c.scaling, 10, 50),
+          adherence: clamp(expansion.design.adherence ?? c.adherence, 10, 100),
+          centerBias: clamp(expansion.design.centerBias ?? c.centerBias, 0, 100),
+          rotation: clamp(expansion.design.rotation ?? c.rotation, 0, 100),
+          randomness: clamp(expansion.design.randomness ?? c.randomness, 0, 100),
+        }));
       }
       setStatus("Packing words...");
-      // give state a tick
       await new Promise((r) => setTimeout(r, 50));
-      await renderToCanvas();
-      setStatus("Quality check...");
-      await new Promise((r) => setTimeout(r, 200));
-    } catch (e: any) {
-      setStatus("Error: " + (e?.message ?? String(e)));
+      let best = await renderToCanvas(undefined, undefined, generatedWords, svg);
+      const maxAttempts = 4;
+      let attempt = 1;
+      while (attempt < maxAttempts) {
+        const current = best ? scoreLayout(best, generatedWords, config) : null;
+        if (current && current.overall >= 90) break;
+        attempt++;
+        setStatus(`Refining layout (${attempt}/${maxAttempts})...`);
+        const next = await renderToCanvas(undefined, undefined, generatedWords, svg);
+        if (!best || (next && next.balanceScore + next.coverage * 100 > best.balanceScore + best.coverage * 100)) {
+          best = next;
+        }
+      }
+      setStatus("Quality check complete");
+      await new Promise((r) => setTimeout(r, 250));
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setStatus("Error: " + message);
       await new Promise((r) => setTimeout(r, 2000));
     } finally {
       setStatus(null);
@@ -344,6 +385,15 @@ function ShapeWordsApp() {
                   options={OPTIMIZATION_PRESETS}
                 />
               </Field>
+              <label className="flex items-center justify-between text-xs text-foreground">
+                <span className="label-mini">Etsy Bestseller Mode</span>
+                <input
+                  type="checkbox"
+                  checked={config.etsyMode}
+                  onChange={(e) => setConfig((c) => ({ ...c, etsyMode: e.target.checked }))}
+                  className="accent-amber-accent"
+                />
+              </label>
               <button
                 onClick={handleGenerate}
                 disabled={busy}
@@ -398,7 +448,8 @@ function ShapeWordsApp() {
                 options={[
                   { value: "preview", label: EXPORT_RES.preview.label },
                   { value: "print", label: EXPORT_RES.print.label },
-                  { value: "large", label: EXPORT_RES.large.label },
+                  { value: "tall", label: EXPORT_RES.tall.label },
+                  { value: "ultra", label: EXPORT_RES.ultra.label },
                 ]}
               />
             </Field>
@@ -415,13 +466,18 @@ function ShapeWordsApp() {
             <div className="px-3 py-1.5 bg-panel border border-panel-border">
               <span className="label-mini">{placedCount} words packed</span>
             </div>
+            {quality && (
+              <div className="px-3 py-1.5 bg-panel border border-panel-border">
+                <span className="label-mini">Quality {Math.round(quality.overall)}</span>
+              </div>
+            )}
           </div>
 
           <div className="flex-1 flex items-center justify-center p-8 min-h-0">
             <div
               className="relative bg-white shadow-[0_0_60px_rgba(0,0,0,0.6)]"
               style={{
-                aspectRatio: "4 / 5",
+                aspectRatio: `${EXPORT_RES[config.resolution].w} / ${EXPORT_RES[config.resolution].h}`,
                 height: `${zoom}%`,
                 maxHeight: "100%",
                 maxWidth: "100%",
@@ -513,8 +569,23 @@ function ShapeWordsApp() {
 
           <div className="border-t border-panel-border p-3 space-y-2 shrink-0">
             <div className="text-[10px] tracking-widest uppercase text-amber-accent">
-              Export format: JPG • 8x10 • 300 DPI
+              Export format: JPG • Professional Print
             </div>
+            {quality && (
+              <div className="border border-panel-border p-2 bg-input/40 space-y-1">
+                <div className="text-[10px] tracking-widest uppercase text-amber-accent">Live quality scoring</div>
+                <QualityRow label="Overall" value={quality.overall} />
+                <QualityRow label="Shape" value={quality.shapeRecognition} />
+                <QualityRow label="Diversity" value={quality.wordDiversity} />
+                <QualityRow label="Balance" value={quality.visualBalance} />
+                <QualityRow label="Coverage" value={quality.coverage} />
+                <QualityRow label="Typography" value={quality.typography} />
+                <QualityRow label="Print" value={quality.printQuality} />
+                <div className="text-[10px] text-muted-foreground">
+                  {quality.uniqueWords} unique · {quality.duplicateWords} duplicate
+                </div>
+              </div>
+            )}
             <button
               onClick={handleDownload}
               disabled={busy}
@@ -574,24 +645,307 @@ function triggerDownload(href: string, filename: string) {
   document.body.removeChild(a);
 }
 
+const PROFESSIONAL_FILLER = [
+  "kind",
+  "caring",
+  "supportive",
+  "thoughtful",
+  "empathetic",
+  "patient",
+  "encouraging",
+  "respectful",
+  "welcoming",
+  "inclusive",
+  "compassionate",
+  "helpful",
+  "uplifting",
+  "calm",
+  "gentle",
+  "sincere",
+  "trustworthy",
+  "reliable",
+  "dependable",
+  "honest",
+  "responsible",
+  "dedicated",
+  "focused",
+  "motivated",
+  "hardworking",
+  "resilient",
+  "determined",
+  "persistent",
+  "confident",
+  "brave",
+  "bold",
+  "strong",
+  "steadfast",
+  "disciplined",
+  "goal-oriented",
+  "curious",
+  "creative",
+  "imaginative",
+  "innovative",
+  "inventive",
+  "expressive",
+  "artistic",
+  "resourceful",
+  "clever",
+  "insightful",
+  "problem-solver",
+  "lifelong learner",
+  "thoughtful leader",
+  "team player",
+  "cooperative",
+  "diplomatic",
+  "grateful",
+  "joyful",
+  "positive",
+  "optimistic",
+  "cheerful",
+  "friendly",
+  "loyal",
+  "warm-hearted",
+  "kind-hearted",
+  "good listener",
+  "selfless",
+  "mindful",
+  "adaptable",
+  "attentive",
+  "balanced",
+  "poised",
+  "graceful",
+  "athletic",
+  "energetic",
+  "spirited",
+  "quick-thinking",
+  "capable",
+  "determined learner",
+  "excellent teammate",
+  "inspiring",
+  "courageous",
+  "steady",
+  "empathetic leader",
+  "service-minded",
+  "community-minded",
+  "citizenship",
+  "integrity",
+  "character",
+  "integrity-driven",
+  "supportive friend",
+  "creative thinker",
+  "future leader",
+  "academic achiever",
+  "organized",
+  "prepared",
+  "driven",
+  "engaged",
+  "reflective",
+  "curiosity",
+  "perseverance",
+  "leadership",
+  "friendship",
+  "kindness",
+  "responsibility",
+  "citizenship-minded",
+  "determination",
+  "compassion",
+  "generosity",
+  "humility",
+  "self-control",
+  "initiative",
+  "dedication",
+  "consistency",
+  "confidence",
+  "optimism",
+  "growth mindset",
+  "respects others",
+  "values teamwork",
+  "supports peers",
+  "encourages others",
+  "leads by example",
+  "acts with integrity",
+  "pursues excellence",
+  "takes initiative",
+  "builds others up",
+  "celebrates others",
+  "performs with heart",
+  "works with purpose",
+  "learns with joy",
+  "approaches challenges",
+  "solves problems",
+  "stays positive",
+  "shows gratitude",
+  "shows courage",
+  "shows resilience",
+  "shows patience",
+  "shows kindness",
+  "shows leadership",
+  "shows creativity",
+  "shows discipline",
+  "shows confidence",
+  "shows empathy",
+  "shows character",
+];
+
+const BLOCKED_PATTERNS = [
+  /beautiful|cute|pretty|handsome|gorgeous|hot|sexy|attractive/i,
+  /boyfriend|girlfriend|romantic|crush|kiss|dating|flirt/i,
+  /baby|adorable|cuddly|cutie/i,
+];
+
+function sanitizeWord(input: string) {
+  const cleaned = input
+    .normalize("NFKD")
+    .replace(/[^\p{L}\p{N}\s-]/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "";
+  if (cleaned.length < 3 || cleaned.length > 28) return "";
+  if (!/[a-z]/i.test(cleaned)) return "";
+  if (BLOCKED_PATTERNS.some((p) => p.test(cleaned))) return "";
+  if (/([a-z])\1{3,}/i.test(cleaned)) return "";
+  return cleaned;
+}
+
+function normalizeWordEntries(name: string, entries: WordEntry[], traits: string): WordEntry[] {
+  const normalized: WordEntry[] = [];
+  const seen = new Set<string>();
+  const traitWords = traits
+    .split(",")
+    .map((t) => sanitizeWord(t))
+    .filter(Boolean);
+
+  const fallback = seedFromTraits(name, traits);
+  const merged = [...entries, ...fallback];
+  for (const entry of merged) {
+    const clean = sanitizeWord(entry.word);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (key === name.toLowerCase()) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({
+      word: clean,
+      category: entry.category || "Character",
+      importanceScore: clamp(entry.importanceScore ?? 25, 10, 100),
+    });
+  }
+
+  for (const trait of traitWords) {
+    for (const phrase of [trait, `${trait} mindset`, `${trait} spirit`, `${trait} leader`]) {
+      const clean = sanitizeWord(phrase);
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalized.push({ word: clean, category: "Character", importanceScore: 60 });
+    }
+  }
+
+  while (normalized.length < 220) {
+    const candidate = PROFESSIONAL_FILLER[normalized.length % PROFESSIONAL_FILLER.length];
+    const clean = sanitizeWord(candidate);
+    const key = clean.toLowerCase();
+    if (clean && !seen.has(key)) {
+      seen.add(key);
+      normalized.push({ word: clean, category: "Character", importanceScore: 20 + (normalized.length % 20) });
+    } else if (traitWords.length) {
+      const trait = traitWords[normalized.length % traitWords.length];
+      const variant = sanitizeWord(`${trait} excellence`);
+      if (variant && !seen.has(variant.toLowerCase())) {
+        seen.add(variant.toLowerCase());
+        normalized.push({ word: variant, category: "Character", importanceScore: 22 });
+      } else {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+
+  return [{ word: name, category: "Name", importanceScore: 95 }, ...normalized.slice(0, 320)];
+}
+
 function seedFromTraits(name: string, traits: string): WordEntry[] {
-  const list = traits.split(/,/).map((t) => t.trim()).filter(Boolean);
-  const filler = [
-    "joy", "smart", "kind", "brave", "true", "bright", "fun", "wise", "bold", "cool", "calm", "warm", "swift",
-    "loyal", "happy", "good", "shine", "free", "best", "neat", "sweet", "quick", "open", "real", "pure",
-    "hero", "star", "spark", "glow", "smile", "rise", "soar", "dream", "hope", "team", "play", "learn",
-    "create", "explore", "lead", "grow", "trust", "honest", "loving", "amazing", "awesome", "talented",
-    "thoughtful", "respectful", "patient", "curious", "energetic", "imaginative", "courageous", "friendly",
-    "helpful", "generous", "cheerful", "responsible", "determined", "focused", "creative", "athletic",
-    "graceful", "strong", "fast", "powerful", "skillful", "clever", "witty", "playful", "gentle",
-  ];
+  const list = traits
+    .split(",")
+    .map((t) => sanitizeWord(t))
+    .filter(Boolean);
   const entries: WordEntry[] = [];
   entries.push({ word: name, category: "Name", importanceScore: 1000 });
   list.forEach((t) => entries.push({ word: t, category: "Character", importanceScore: 90 }));
-  filler.forEach((w, i) => entries.push({ word: w, category: "Character", importanceScore: 30 + (i % 30) }));
-  // duplicate filler at lower scores for tier 4/5
-  filler.forEach((w, i) => entries.push({ word: w, category: "Character", importanceScore: 15 + (i % 15) }));
+  PROFESSIONAL_FILLER.forEach((w, i) =>
+    entries.push({ word: w, category: "Character", importanceScore: i < 40 ? 55 : i < 90 ? 35 : 20 }),
+  );
   return entries;
+}
+
+function pickTypographyPair(fontFamily: string, etsyMode: boolean) {
+  if (!etsyMode) return { nameFont: fontFamily, bodyFont: fontFamily };
+  if (["Great Vibes", "Caveat"].includes(fontFamily)) {
+    return { nameFont: "Playfair Display", bodyFont: "Inter" };
+  }
+  if (["Bebas Neue", "Impact", "Oswald", "Orbitron"].includes(fontFamily)) {
+    return { nameFont: "Cinzel", bodyFont: "Montserrat" };
+  }
+  return { nameFont: "Playfair Display", bodyFont: "Inter" };
+}
+
+function scoreLayout(result: Awaited<ReturnType<typeof packWords>>, words: WordEntry[], config: Config): QualityScores {
+  const sourceUnique = new Set(words.map((w) => w.word.toLowerCase())).size;
+  const sourceDiversity = clamp((sourceUnique / 220) * 100, 0, 100);
+  const wordDiversity = clamp((sourceDiversity * 0.6) + (result.diversityScore * 0.4), 0, 100);
+  const coverage = clamp(100 - Math.abs(result.coverage - 0.94) * 320, 0, 100);
+  const typography =
+    clamp(100 - Math.abs(result.nameAreaPct - 11.5) * 5, 0, 100) * 0.6 +
+    clamp(100 - Math.abs(result.accentRatio - 15) * 4, 0, 100) * 0.4;
+  const shapeRecognition = clamp((result.coverage * 100 * 0.6) + (result.balanceScore * 0.4), 0, 100);
+  const printQuality = clamp(
+    92 - Math.max(0, result.duplicateCount - 6) * 0.15 - (config.etsyMode ? 0 : 3),
+    0,
+    100,
+  );
+  const overall =
+    shapeRecognition * 0.2 +
+    wordDiversity * 0.2 +
+    result.balanceScore * 0.2 +
+    printQuality * 0.15 +
+    typography * 0.15 +
+    coverage * 0.1;
+
+  return {
+    shapeRecognition,
+    wordDiversity,
+    visualBalance: result.balanceScore,
+    printQuality,
+    typography,
+    coverage,
+    overall,
+    uniqueWords: sourceUnique,
+    duplicateWords: result.duplicateCount,
+  };
+}
+
+function drawShapeOutline(ctx: CanvasRenderingContext2D, svg: string, width: number, height: number) {
+  const viewBoxMatch = svg.match(/viewBox=["']([\d.\s-]+)["']/i);
+  const [vbX, vbY, vbW, vbH] = (viewBoxMatch?.[1] || "0 0 1000 1000")
+    .split(/\s+/)
+    .map((n) => Number(n));
+  const pathMatches = [...svg.matchAll(/<path[^>]*d=["']([^"']+)["'][^>]*>/gi)];
+  if (pathMatches.length === 0) return;
+
+  ctx.save();
+  ctx.translate(0, 0);
+  ctx.scale(width / vbW, height / vbH);
+  ctx.translate(-vbX, -vbY);
+  ctx.strokeStyle = "#0A0A0A";
+  ctx.lineWidth = Math.max(10, Math.min(vbW, vbH) * 0.01);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const match of pathMatches) {
+    ctx.stroke(new Path2D(match[1]));
+  }
+  ctx.restore();
 }
 
 /* ---------- UI primitives ---------- */
@@ -674,6 +1028,15 @@ function Slider({
         className="w-full h-1"
         style={{ accentColor: "#D97706" }}
       />
+    </div>
+  );
+}
+
+function QualityRow({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between text-[10px]">
+      <span className="text-muted-foreground tracking-wider uppercase">{label}</span>
+      <span className="tabular-nums font-semibold text-foreground">{Math.round(value)}</span>
     </div>
   );
 }
