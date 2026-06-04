@@ -571,7 +571,9 @@ function ShapeWordsApp() {
                   {packingProgress !== null && (
                     <div className="w-64 space-y-1">
                       <Progress value={packingProgress} className="h-2 bg-panel-border" />
-                      <div className="text-[10px] text-muted-foreground text-center">{packingProgress}%</div>
+                      <div className="text-[10px] text-muted-foreground text-center">
+                        {packingProgress}%
+                      </div>
                     </div>
                   )}
                   {batchProgress && (

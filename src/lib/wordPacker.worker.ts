@@ -74,7 +74,12 @@ function createMeasureContext(): OffscreenCanvasRenderingContext2D | null {
 
 const measureCtx = createMeasureContext();
 
-function measureWord(word: string, fontSize: number, fontFamily: string, fontWeight: number): number {
+function measureWord(
+  word: string,
+  fontSize: number,
+  fontFamily: string,
+  fontWeight: number,
+): number {
   if (measureCtx) {
     measureCtx.font = `${fontWeight} ${fontSize}px "${fontFamily}", sans-serif`;
     return measureCtx.measureText(word).width;
@@ -82,7 +87,11 @@ function measureWord(word: string, fontSize: number, fontFamily: string, fontWei
   return word.length * fontSize * 0.58;
 }
 
-function computePlacements(mask: Uint8Array, maskSize: number, opts: PackOptions): PackComputationResult {
+function computePlacements(
+  mask: Uint8Array,
+  maskSize: number,
+  opts: PackOptions,
+): PackComputationResult {
   const { width, height } = opts;
   const primary = opts.primaryColor ?? "#000000";
   const accent = opts.accentColor;
@@ -106,8 +115,12 @@ function computePlacements(mask: Uint8Array, maskSize: number, opts: PackOptions
 
   const rest = sorted.filter((w) => w.word.toLowerCase() !== opts.name.toLowerCase());
   const tier2 = rest.filter((w) => w.importanceScore >= 85).slice(0, etsy ? 6 : 8);
-  const tier3 = rest.filter((w) => w.importanceScore >= 40 && w.importanceScore < 85).slice(0, etsy ? 55 : 80);
-  const tier4 = rest.filter((w) => w.importanceScore >= 10 && w.importanceScore < 40).slice(0, etsy ? 140 : 200);
+  const tier3 = rest
+    .filter((w) => w.importanceScore >= 40 && w.importanceScore < 85)
+    .slice(0, etsy ? 55 : 80);
+  const tier4 = rest
+    .filter((w) => w.importanceScore >= 10 && w.importanceScore < 40)
+    .slice(0, etsy ? 140 : 200);
   const pool = rest.filter((w) => w.importanceScore < 50);
   const tier5Cap = pool.length > 0 ? (etsy ? 180 : 400) : 0;
 
@@ -127,9 +140,7 @@ function computePlacements(mask: Uint8Array, maskSize: number, opts: PackOptions
   let bottomWeight = 0;
 
   const sendProgress = (force = false) => {
-    const progress = force
-      ? 100
-      : Math.min(99, Math.round((completedUnits / totalUnits) * 100));
+    const progress = force ? 100 : Math.min(99, Math.round((completedUnits / totalUnits) * 100));
     if (force || progress > lastProgress) {
       const message: WordPackerWorkerResponse = { type: "progress", progress };
       self.postMessage(message);
@@ -197,7 +208,16 @@ function computePlacements(mask: Uint8Array, maskSize: number, opts: PackOptions
 
       if (!grid.collides(box)) {
         grid.add(box);
-        const placement: PackPlacement = { x, y, word, fontSize, color, angle, fontFamily, fontWeight };
+        const placement: PackPlacement = {
+          x,
+          y,
+          word,
+          fontSize,
+          color,
+          angle,
+          fontFamily,
+          fontWeight,
+        };
         placements.push(placement);
         trackPlacement(word, box, color);
         placedTotal++;
