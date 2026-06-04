@@ -11,6 +11,7 @@ import {
 } from "@/lib/students";
 import { callShapeGen, callWordExpansion, FALLBACK_HEART_SVG, type WordEntry } from "@/lib/gemini";
 import { buildMaskFromSvg, packWords } from "@/lib/wordPacker";
+import { Progress } from "@/components/ui/progress";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -100,6 +101,7 @@ function ShapeWordsApp() {
   const [quality, setQuality] = useState<QualityScores | null>(null);
   const [zoom, setZoom] = useState(100);
   const [batchProgress, setBatchProgress] = useState<{ i: number; total: number } | null>(null);
+  const [packingProgress, setPackingProgress] = useState<number | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskRef = useRef<{ mask: Uint8Array; size: number } | null>(null);
@@ -158,30 +160,41 @@ function ShapeWordsApp() {
       const wordSet = normalizeWordEntries(nameField, rawWordSet, traitsField);
       const accent = active.colorPalette[1] ?? "#D97706";
       const typography = pickTypographyPair(config.fontFamily, config.etsyMode);
-      const result = await packWords(ctx, maskRef.current.mask, maskRef.current.size, {
-        width,
-        height,
-        name: nameField,
-        words: wordSet,
-        fontFamily: config.fontFamily,
-        bodyFontFamily: typography.bodyFont,
-        nameFontFamily: typography.nameFont,
-        accentColor: accent,
-        primaryColor: active.colorPalette[0] ?? "#000000",
-        bgColor: "#FFFFFF",
-        density: config.density,
-        scaling: config.scaling,
-        adherence: config.adherence,
-        rotation: config.rotation,
-        randomness: config.randomness,
-        centerBias: config.centerBias,
-        emphasis: config.emphasis,
-        etsyMode: config.etsyMode,
-      });
-      drawShapeOutline(ctx, shapeOverride ?? shapeSvg, width, height);
-      setPlacedCount(result.placedCount);
-      setQuality(scoreLayout(result, wordSet, config));
-      return result;
+      setPackingProgress(0);
+      try {
+        const result = await packWords(
+          ctx,
+          maskRef.current.mask,
+          maskRef.current.size,
+          {
+            width,
+            height,
+            name: nameField,
+            words: wordSet,
+            fontFamily: config.fontFamily,
+            bodyFontFamily: typography.bodyFont,
+            nameFontFamily: typography.nameFont,
+            accentColor: accent,
+            primaryColor: active.colorPalette[0] ?? "#000000",
+            bgColor: "#FFFFFF",
+            density: config.density,
+            scaling: config.scaling,
+            adherence: config.adherence,
+            rotation: config.rotation,
+            randomness: config.randomness,
+            centerBias: config.centerBias,
+            emphasis: config.emphasis,
+            etsyMode: config.etsyMode,
+          },
+          (progress) => setPackingProgress(progress),
+        );
+        drawShapeOutline(ctx, shapeOverride ?? shapeSvg, width, height);
+        setPlacedCount(result.placedCount);
+        setQuality(scoreLayout(result, wordSet, config));
+        return result;
+      } finally {
+        setPackingProgress(null);
+      }
     },
     [active, words, nameField, traitsField, shapeSvg, config],
   );
@@ -261,6 +274,7 @@ function ShapeWordsApp() {
       setStatus("Error: " + message);
       await new Promise((r) => setTimeout(r, 2000));
     } finally {
+      setPackingProgress(null);
       setStatus(null);
       setBusy(false);
     }
@@ -272,6 +286,7 @@ function ShapeWordsApp() {
     try {
       await renderToCanvas();
     } finally {
+      setPackingProgress(null);
       setStatus(null);
       setBusy(false);
     }
@@ -330,6 +345,7 @@ function ShapeWordsApp() {
     const date = new Date().toISOString().split("T")[0];
     triggerDownload(url, `Class_WordArt_${date}.zip`);
     URL.revokeObjectURL(url);
+    setPackingProgress(null);
     setStatus(null);
     setBatchProgress(null);
     setBusy(false);
@@ -546,12 +562,18 @@ function ShapeWordsApp() {
                 className="block w-full h-full"
                 style={{ objectFit: "contain" }}
               />
-              {(status || busy) && (
+              {(status || busy || packingProgress !== null) && (
                 <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3 backdrop-blur-sm">
                   <div className="w-10 h-10 border-2 border-amber-accent border-t-transparent rounded-full animate-spin" />
                   <div className="text-amber-accent text-xs tracking-widest uppercase">
-                    {status || "Working..."}
+                    {status || (packingProgress !== null ? "Packing words..." : "Working...")}
                   </div>
+                  {packingProgress !== null && (
+                    <div className="w-64 space-y-1">
+                      <Progress value={packingProgress} className="h-2 bg-panel-border" />
+                      <div className="text-[10px] text-muted-foreground text-center">{packingProgress}%</div>
+                    </div>
+                  )}
                   {batchProgress && (
                     <div className="w-64 h-1 bg-panel-border mt-2">
                       <div
