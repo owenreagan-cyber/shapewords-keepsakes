@@ -10,7 +10,14 @@ import {
   type Student,
 } from "@/lib/students";
 import { callShapeGen, callWordExpansion, FALLBACK_HEART_SVG, type WordEntry } from "@/lib/gemini";
-import { buildMaskFromSvg, packWords } from "@/lib/wordPacker";
+import {
+  buildMaskFromSvg,
+  drawPlacements,
+  type PackOptions,
+  type PackResult,
+  type WordPackerWorkerRequest,
+  type WordPackerWorkerResponse,
+} from "@/lib/wordPacker";
 import { Progress } from "@/components/ui/progress";
 
 export const Route = createFileRoute("/")({
@@ -105,6 +112,14 @@ function ShapeWordsApp() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskRef = useRef<{ mask: Uint8Array; size: number } | null>(null);
+  const workersRef = useRef<Set<Worker>>(new Set());
+
+  useEffect(() => {
+    return () => {
+      for (const worker of workersRef.current) worker.terminate();
+      workersRef.current.clear();
+    };
+  }, []);
 
   // when active student changes, reset fields
   useEffect(() => {
@@ -134,6 +149,62 @@ function ShapeWordsApp() {
     };
   }, [shapeSvg]);
 
+  const packWordsWithWorker = useCallback(
+    async (
+      ctx: CanvasRenderingContext2D,
+      mask: Uint8Array,
+      maskSize: number,
+      opts: PackOptions,
+      onProgress?: (progress: number) => void,
+    ): Promise<PackResult> =>
+      new Promise((resolve, reject) => {
+        const worker = new Worker(new URL("../lib/wordPacker.worker.ts", import.meta.url), {
+          type: "module",
+        });
+        workersRef.current.add(worker);
+
+        const cleanup = () => {
+          workersRef.current.delete(worker);
+          worker.onmessage = null;
+          worker.onerror = null;
+          worker.terminate();
+        };
+
+        worker.onmessage = (event: MessageEvent<WordPackerWorkerResponse>) => {
+          const message = event.data;
+          if (message.type === "progress") {
+            onProgress?.(message.progress);
+            return;
+          }
+          if (message.type === "complete") {
+            drawPlacements(
+              ctx,
+              opts.width,
+              opts.height,
+              opts.bgColor ?? "#FFFFFF",
+              message.payload.placements,
+            );
+            cleanup();
+            onProgress?.(100);
+            resolve(message.payload.result);
+            return;
+          }
+          cleanup();
+          reject(new Error(message.error));
+        };
+
+        worker.onerror = (event) => {
+          cleanup();
+          reject(new Error(event.message || "Word packing worker failed"));
+        };
+
+        onProgress?.(0);
+        const request: WordPackerWorkerRequest = { type: "pack", payload: { mask, maskSize, opts } };
+        worker.postMessage(request);
+      }),
+    [],
+  );
+
   const renderToCanvas = useCallback(
     async (
       targetCanvas?: HTMLCanvasElement,
@@ -162,7 +233,7 @@ function ShapeWordsApp() {
       const typography = pickTypographyPair(config.fontFamily, config.etsyMode);
       setPackingProgress(0);
       try {
-        const result = await packWords(
+        const result = await packWordsWithWorker(
           ctx,
           maskRef.current.mask,
           maskRef.current.size,
@@ -196,7 +267,7 @@ function ShapeWordsApp() {
         setPackingProgress(null);
       }
     },
-    [active, words, nameField, traitsField, shapeSvg, config],
+    [active, words, nameField, traitsField, shapeSvg, config, packWordsWithWorker],
   );
 
   // initial render on mount + config / student change
@@ -315,7 +386,7 @@ function ShapeWordsApp() {
         const ctx = off.getContext("2d")!;
         off.width = res.w;
         off.height = res.h;
-        await packWords(ctx, mask, 512, {
+        await packWordsWithWorker(ctx, mask, 512, {
           width: res.w,
           height: res.h,
           name: s.name,
@@ -994,7 +1065,7 @@ function pickTypographyPair(fontFamily: string, etsyMode: boolean) {
 }
 
 function scoreLayout(
-  result: Awaited<ReturnType<typeof packWords>>,
+  result: PackResult,
   words: WordEntry[],
   config: Config,
 ): QualityScores {
