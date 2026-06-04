@@ -6,6 +6,8 @@ export interface PackOptions {
   name: string;
   words: WordEntry[];
   fontFamily: string;
+  bodyFontFamily?: string;
+  nameFontFamily?: string;
   accentColor: string;
   primaryColor?: string;
   bgColor?: string;
@@ -16,12 +18,18 @@ export interface PackOptions {
   randomness: number; // 0-100
   centerBias: number; // 0-100
   emphasis: number; // 1-5
+  etsyMode?: boolean;
 }
 
 export interface PackResult {
   placedCount: number;
   uniqueCount: number;
+  duplicateCount: number;
+  diversityScore: number;
   coverage: number;
+  nameAreaPct: number;
+  accentRatio: number;
+  balanceScore: number;
 }
 
 interface Box {
@@ -94,7 +102,8 @@ class Grid {
       for (let y = y0; y <= y1; y++) {
         const k = this.key(x, y);
         const arr = this.cells.get(k);
-        if (arr) arr.push(b); else this.cells.set(k, [b]);
+        if (arr) arr.push(b);
+        else this.cells.set(k, [b]);
       }
     }
   }
@@ -128,12 +137,15 @@ export async function packWords(
 
   const primary = opts.primaryColor ?? "#000000";
   const accent = opts.accentColor;
+  const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
+  const nameFont = opts.nameFontFamily ?? opts.fontFamily;
   const grid = new Grid(Math.max(20, Math.min(width, height) / 40));
 
+  const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40; // 1..2
   const emphasisMul = 0.8 + opts.emphasis * 0.1; // 0.9..1.3
-  const rotChance = opts.rotation / 100;
-  const randomness = opts.randomness / 100;
+  const rotChance = (opts.rotation / 100) * (etsy ? 0.2 : 1);
+  const randomness = (opts.randomness / 100) * (etsy ? 0.6 : 1);
   const adherence = opts.adherence / 100;
 
   const cx = width / 2;
@@ -147,13 +159,39 @@ export async function packWords(
   if (!nameEntry) sorted.unshift({ word: opts.name, category: "Name", importanceScore: 1000 });
 
   const uniqueWordsSeen = new Set<string>();
+  const wordCounts = new Map<string, number>();
   let placedInsideMask = 0;
   let placedTotal = 0;
+  let accentPlacements = 0;
+  let leftWeight = 0;
+  let rightWeight = 0;
+  let topWeight = 0;
+  let bottomWeight = 0;
 
-  function place(word: string, fontSize: number, color: string, allowRotate: boolean, mustBeInMask: boolean): boolean {
+  function trackPlacement(word: string, box: Box, color: string) {
+    const key = word.toLowerCase();
+    wordCounts.set(key, (wordCounts.get(key) ?? 0) + 1);
+    uniqueWordsSeen.add(key);
+    if (color === accent) accentPlacements++;
+    const area = box.w * box.h;
+    const midX = box.x + box.w / 2;
+    const midY = box.y + box.h / 2;
+    if (midX < cx) leftWeight += area;
+    else rightWeight += area;
+    if (midY < cy) topWeight += area;
+    else bottomWeight += area;
+  }
+
+  function place(
+    word: string,
+    fontSize: number,
+    color: string,
+    allowRotate: boolean,
+    mustBeInMask: boolean,
+  ): boolean {
     const angles = allowRotate && Math.random() < rotChance ? [Math.PI / 2] : [0];
     const angle = angles[0];
-    ctx.font = `${fontSize}px "${opts.fontFamily}", sans-serif`;
+    ctx.font = `${fontSize}px "${bodyFont}", sans-serif`;
     const metrics = ctx.measureText(word);
     const tw = metrics.width;
     const th = fontSize * 1.05;
@@ -181,7 +219,7 @@ export async function packWords(
       }
 
       const insideMask =
-        maskAt(mask, maskSize, (x) / width, (y) / height) &&
+        maskAt(mask, maskSize, x / width, y / height) &&
         maskAt(mask, maskSize, box.x / width, box.y / height) &&
         maskAt(mask, maskSize, (box.x + box.w) / width, (box.y + box.h) / height);
 
@@ -201,7 +239,7 @@ export async function packWords(
         ctx.textBaseline = "middle";
         ctx.fillText(word, 0, 0);
         ctx.restore();
-        uniqueWordsSeen.add(word.toLowerCase());
+        trackPlacement(word, box, color);
         placedTotal++;
         if (insideMask) placedInsideMask++;
         return true;
@@ -217,8 +255,12 @@ export async function packWords(
   }
 
   // Tier 1: name at center
-  const nameSize = height * (0.14 + 0.04 * Math.min(1, emphasisMul - 0.9)) * scaleMul * 0.8;
-  ctx.font = `bold ${nameSize}px "${opts.fontFamily}", sans-serif`;
+  const nameSize =
+    height *
+    (etsy ? 0.11 : 0.14 + 0.04 * Math.min(1, emphasisMul - 0.9)) *
+    scaleMul *
+    (etsy ? 0.75 : 0.8);
+  ctx.font = `700 ${nameSize}px "${nameFont}", serif`;
   const nm = ctx.measureText(opts.name);
   const nameBox: Box = {
     x: cx - nm.width / 2 - 10,
@@ -233,7 +275,7 @@ export async function packWords(
   ctx.textBaseline = "middle";
   ctx.fillText(opts.name, cx, cy);
   ctx.restore();
-  uniqueWordsSeen.add(opts.name.toLowerCase());
+  trackPlacement(opts.name, nameBox, accent);
   placedTotal++;
   placedInsideMask++;
 
@@ -241,44 +283,68 @@ export async function packWords(
   const rest = sorted.filter((w) => w.word.toLowerCase() !== opts.name.toLowerCase());
 
   // Tier 2: primary 85-100
-  const tier2 = rest.filter((w) => w.importanceScore >= 85).slice(0, 8);
+  const tier2 = rest.filter((w) => w.importanceScore >= 85).slice(0, etsy ? 6 : 8);
   for (const w of tier2) {
-    const fs = height * (0.04 + Math.random() * 0.02) * scaleMul * emphasisMul;
-    const color = Math.random() < 0.3 ? accent : primary;
+    const fs = height * (etsy ? 0.032 : 0.04 + Math.random() * 0.02) * scaleMul * emphasisMul;
+    const color = Math.random() < (etsy ? 0.24 : 0.3) ? accent : primary;
     place(w.word, fs, color, false, true);
   }
 
   // Tier 3: supporting 40-84
-  const tier3 = rest.filter((w) => w.importanceScore >= 40 && w.importanceScore < 85).slice(0, 80);
-  const densityMul = opts.density / 100;
+  const tier3 = rest
+    .filter((w) => w.importanceScore >= 40 && w.importanceScore < 85)
+    .slice(0, etsy ? 55 : 80);
+  const densityMul = (opts.density / 100) * (etsy ? 0.82 : 1);
   for (const w of tier3) {
     if (Math.random() > densityMul) continue;
-    const fs = height * 0.022 * scaleMul;
-    const color = Math.random() < 0.15 ? accent : primary;
-    place(w.word, fs, color, true, Math.random() < adherence);
+    const fs = height * (etsy ? 0.019 : 0.022) * scaleMul;
+    const color = Math.random() < (etsy ? 0.11 : 0.15) ? accent : primary;
+    place(w.word, fs, color, !etsy, Math.random() < adherence);
   }
 
   // Tier 4: filler 10-39
-  const tier4 = rest.filter((w) => w.importanceScore >= 10 && w.importanceScore < 40).slice(0, 200);
+  const tier4 = rest
+    .filter((w) => w.importanceScore >= 10 && w.importanceScore < 40)
+    .slice(0, etsy ? 140 : 200);
   for (const w of tier4) {
     if (Math.random() > densityMul) continue;
-    const fs = (height * 0.013) + (Math.random() - 0.5) * 2;
-    const color = Math.random() < 0.12 ? accent : primary;
-    place(w.word, fs, color, true, Math.random() < adherence);
+    const fs = height * (etsy ? 0.011 : 0.013) + (Math.random() - 0.5) * 2;
+    const color = Math.random() < (etsy ? 0.08 : 0.12) ? accent : primary;
+    place(w.word, fs, color, !etsy, Math.random() < adherence);
   }
 
   // Tier 5: micro fill, repeat lower-scored words
   const pool = rest.filter((w) => w.importanceScore < 50);
   if (pool.length > 0) {
-    for (let i = 0; i < 400; i++) {
+    const cap = etsy ? 180 : 400;
+    for (let i = 0; i < cap; i++) {
       const w = pool[i % pool.length];
-      const fs = height * 0.008;
-      const color = Math.random() < 0.1 ? accent : primary;
-      const ok = place(w.word, fs, color, true, Math.random() < adherence);
+      const fs = height * (etsy ? 0.007 : 0.008);
+      const color = Math.random() < (etsy ? 0.06 : 0.1) ? accent : primary;
+      const ok = place(w.word, fs, color, !etsy, Math.random() < adherence);
       if (!ok && i > 100) break;
     }
   }
 
   const coverage = placedTotal === 0 ? 0 : placedInsideMask / placedTotal;
-  return { placedCount: placedTotal, uniqueCount: uniqueWordsSeen.size, coverage };
+  const uniqueCount = uniqueWordsSeen.size;
+  const duplicateCount = Math.max(0, placedTotal - uniqueCount);
+  const diversityScore = placedTotal === 0 ? 0 : (uniqueCount / placedTotal) * 100;
+  const totalWeight = leftWeight + rightWeight + topWeight + bottomWeight || 1;
+  const lrDelta = Math.abs(leftWeight - rightWeight) / (leftWeight + rightWeight || 1);
+  const tbDelta = Math.abs(topWeight - bottomWeight) / (topWeight + bottomWeight || 1);
+  const balanceScore = Math.max(0, 100 - ((lrDelta + tbDelta) / 2) * 140);
+  const nameAreaPct = ((nameBox.w * nameBox.h) / (width * height)) * 100;
+  const accentRatio = (accentPlacements / Math.max(1, placedTotal)) * 100;
+
+  return {
+    placedCount: placedTotal,
+    uniqueCount,
+    duplicateCount,
+    diversityScore,
+    coverage,
+    nameAreaPct,
+    accentRatio,
+    balanceScore: totalWeight ? balanceScore : 0,
+  };
 }
