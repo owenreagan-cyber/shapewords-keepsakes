@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { saveAs } from "file-saver";
 import JSZip from "jszip";
 import {
   STUDENTS,
@@ -46,6 +47,8 @@ const EXPORT_RES = {
   ultra: { w: 6000, h: 12000, label: "6000x12000px (Ultra)" },
 };
 
+const BATCH_EXPORT_RES = { w: 2400, h: 3000 };
+
 type Config = {
   fontFamily: string;
   theme: string;
@@ -72,6 +75,19 @@ type QualityScores = {
   overall: number;
   uniqueWords: number;
   duplicateWords: number;
+};
+
+type RenderJob = {
+  canvas: HTMLCanvasElement;
+  student: Student;
+  config: Config;
+  size: { w: number; h: number };
+  svg: string;
+  words: WordEntry[];
+  mask?: Uint8Array;
+  maskSize?: number;
+  onProgress?: (progress: number) => void;
+  syncState?: boolean;
 };
 
 function defaultConfig(s: Student): Config {
@@ -113,6 +129,10 @@ function ShapeWordsApp() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const maskRef = useRef<{ mask: Uint8Array; size: number } | null>(null);
   const workersRef = useRef<Set<Worker>>(new Set());
+  const currentStudent = useMemo(
+    () => ({ ...active, name: nameField, traits: traitsField, shape: shapeField }),
+    [active, nameField, traitsField, shapeField],
+  );
 
   useEffect(() => {
     const workers = workersRef.current;
@@ -209,6 +229,73 @@ function ShapeWordsApp() {
     [],
   );
 
+  const renderWordArt = useCallback(
+    async ({
+      canvas,
+      student,
+      config: renderConfig,
+      size,
+      svg,
+      words: rawWords,
+      mask,
+      maskSize = 512,
+      onProgress,
+      syncState = false,
+    }: RenderJob) => {
+      canvas.width = size.w;
+      canvas.height = size.h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context unavailable");
+
+      const effectiveMask = mask
+        ? { mask, size: maskSize }
+        : { mask: await buildMaskFromSvg(svg, maskSize), size: maskSize };
+      const wordSet = normalizeWordEntries(student.name, rawWords, student.traits);
+      const accent = student.colorPalette[1] ?? "#D97706";
+      const typography = pickTypographyPair(renderConfig.fontFamily, renderConfig.etsyMode);
+
+      if (syncState) setPackingProgress(0);
+      try {
+        const result = await packWordsWithWorker(
+          ctx,
+          effectiveMask.mask,
+          effectiveMask.size,
+          {
+            width: size.w,
+            height: size.h,
+            name: student.name,
+            words: wordSet,
+            theme: student.theme,
+            fontFamily: renderConfig.fontFamily,
+            bodyFontFamily: typography.bodyFont,
+            nameFontFamily: typography.nameFont,
+            accentColor: accent,
+            primaryColor: student.colorPalette[0] ?? "#000000",
+            bgColor: "#FFFFFF",
+            density: renderConfig.density,
+            scaling: renderConfig.scaling,
+            adherence: renderConfig.adherence,
+            rotation: renderConfig.rotation,
+            randomness: renderConfig.randomness,
+            centerBias: renderConfig.centerBias,
+            emphasis: renderConfig.emphasis,
+            etsyMode: renderConfig.etsyMode,
+          },
+          onProgress ?? (syncState ? setPackingProgress : undefined),
+        );
+        drawShapeOutline(ctx, svg, size.w, size.h);
+        if (syncState) {
+          setPlacedCount(result.placedCount);
+          setQuality(scoreLayout(result, wordSet, renderConfig));
+        }
+        return result;
+      } finally {
+        if (syncState) setPackingProgress(null);
+      }
+    },
+    [packWordsWithWorker],
+  );
+
   const renderToCanvas = useCallback(
     async (
       targetCanvas?: HTMLCanvasElement,
@@ -218,60 +305,28 @@ function ShapeWordsApp() {
     ) => {
       const canvas = targetCanvas ?? canvasRef.current;
       if (!canvas) return null;
-      const res = sizeOverride ?? EXPORT_RES[config.resolution];
-      const width = res.w;
-      const height = res.h;
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d")!;
-      if (!maskRef.current) {
-        maskRef.current = {
-          mask: await buildMaskFromSvg(shapeOverride ?? shapeSvg, 512),
-          size: 512,
-        };
-      }
-      const rawWordSet: WordEntry[] =
-        wordsOverride ?? (words.length > 0 ? words : seedFromTraits(active.name, traitsField));
-      const wordSet = normalizeWordEntries(nameField, rawWordSet, traitsField);
-      const accent = active.colorPalette[1] ?? "#D97706";
-      const typography = pickTypographyPair(config.fontFamily, config.etsyMode);
-      setPackingProgress(0);
-      try {
-        const result = await packWordsWithWorker(
-          ctx,
-          maskRef.current.mask,
-          maskRef.current.size,
-          {
-            width,
-            height,
-            name: nameField,
-            words: wordSet,
-            fontFamily: config.fontFamily,
-            bodyFontFamily: typography.bodyFont,
-            nameFontFamily: typography.nameFont,
-            accentColor: accent,
-            primaryColor: active.colorPalette[0] ?? "#000000",
-            bgColor: "#FFFFFF",
-            density: config.density,
-            scaling: config.scaling,
-            adherence: config.adherence,
-            rotation: config.rotation,
-            randomness: config.randomness,
-            centerBias: config.centerBias,
-            emphasis: config.emphasis,
-            etsyMode: config.etsyMode,
-          },
-          (progress) => setPackingProgress(progress),
-        );
-        drawShapeOutline(ctx, shapeOverride ?? shapeSvg, width, height);
-        setPlacedCount(result.placedCount);
-        setQuality(scoreLayout(result, wordSet, config));
-        return result;
-      } finally {
-        setPackingProgress(null);
-      }
+      const svg = shapeOverride ?? shapeSvg;
+      const activeMask =
+        !shapeOverride && maskRef.current
+          ? maskRef.current
+          : {
+              mask: await buildMaskFromSvg(svg, 512),
+              size: 512,
+            };
+
+      return renderWordArt({
+        canvas,
+        student: currentStudent,
+        config,
+        size: sizeOverride ?? EXPORT_RES[config.resolution],
+        svg,
+        words: wordsOverride ?? (words.length > 0 ? words : seedFromTraits(nameField, traitsField)),
+        mask: activeMask.mask,
+        maskSize: activeMask.size,
+        syncState: true,
+      });
     },
-    [active, words, nameField, traitsField, shapeSvg, config, packWordsWithWorker],
+    [config, currentStudent, nameField, renderWordArt, shapeSvg, traitsField, words],
   );
 
   // initial render on mount + config / student change
@@ -291,6 +346,7 @@ function ShapeWordsApp() {
         callWordExpansion({
           name: nameField,
           traits: traitsField,
+          theme: config.theme,
           aiExpansionProfile: active.aiExpansionProfile,
           preset: config.preset,
           fontFamily: config.fontFamily,
@@ -377,53 +433,70 @@ function ShapeWordsApp() {
 
   const handleBatchExport = async () => {
     setBusy(true);
+    setPackingProgress(null);
+    setBatchProgress({ i: 0, total: students.length });
     const zip = new JSZip();
     const off = document.createElement("canvas");
-    const res = EXPORT_RES.print;
-    for (let i = 0; i < students.length; i++) {
-      const s = students[i];
-      setBatchProgress({ i: i + 1, total: students.length });
-      setStatus(`Generating ${i + 1} of ${students.length}: ${s.name}`);
-      try {
-        const svg = FALLBACK_HEART_SVG; // skip API calls for speed; use last known seed words
+    try {
+      for (let i = 0; i < students.length; i++) {
+        const s = students[i];
+        const studentConfig = {
+          ...defaultConfig(s),
+          theme: s.theme,
+          preset: s.printPreset,
+          silhouetteStyle: s.printPreset,
+        };
+        const accent = s.colorPalette[1] ?? "#D97706";
+
+        setBatchProgress({ i: i + 1, total: students.length });
+        setStatus(`Processing Student ${i + 1} of ${students.length}`);
+        const [expansion, svg] = await Promise.all([
+          callWordExpansion({
+            name: s.name,
+            traits: s.traits,
+            theme: s.theme,
+            aiExpansionProfile: s.aiExpansionProfile,
+            preset: studentConfig.preset,
+            fontFamily: studentConfig.fontFamily,
+            accentColor: accent,
+          }).catch((error) => {
+            console.warn("Batch word expansion failed:", s.name, error);
+            return null;
+          }),
+          callShapeGen(s.shape, studentConfig.silhouetteStyle).catch((error) => {
+            console.warn("Batch shape generation failed:", s.name, error);
+            return FALLBACK_HEART_SVG;
+          }),
+        ]);
         const mask = await buildMaskFromSvg(svg, 512);
-        const ctx = off.getContext("2d")!;
-        off.width = res.w;
-        off.height = res.h;
-        await packWordsWithWorker(ctx, mask, 512, {
-          width: res.w,
-          height: res.h,
-          name: s.name,
-          words: seedFromTraits(s.name, s.traits),
-          fontFamily: s.fontFamily,
-          accentColor: s.colorPalette[1] ?? "#D97706",
-          primaryColor: s.colorPalette[0] ?? "#000000",
-          density: s.density,
-          scaling: 25,
-          adherence: 92,
-          rotation: 25,
-          randomness: 15,
-          centerBias: 85,
-          emphasis: s.emphasis === "High" ? 4 : s.emphasis === "Medium" ? 3 : 2,
+
+        setPackingProgress(0);
+        await renderWordArt({
+          canvas: off,
+          student: s,
+          config: studentConfig,
+          size: BATCH_EXPORT_RES,
+          svg,
+          words: expansion?.words?.length ? expansion.words : seedFromTraits(s.name, s.traits),
+          mask,
+          onProgress: setPackingProgress,
         });
-        const blob: Blob = await new Promise((resolve) =>
-          off.toBlob((b) => resolve(b!), "image/jpeg", 0.95),
-        );
-        zip.file(`${s.name}_WordArt_8x10_300dpi.jpg`, blob);
-      } catch (e) {
-        console.warn("Batch fail", s.name, e);
+        const blob = await canvasToBlob(off, "image/png");
+        zip.file(`${toSafeFilenamePart(s.name)}-wordart.png`, blob);
       }
+      setStatus("Creating ZIP...");
+      const blob = await zip.generateAsync({ type: "blob" });
+      saveAs(blob, "Class-Keepsakes.zip");
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setStatus("Batch failed: " + message);
+      await new Promise((r) => setTimeout(r, 2000));
+    } finally {
+      setPackingProgress(null);
+      setStatus(null);
+      setBatchProgress(null);
+      setBusy(false);
     }
-    setStatus("Zipping...");
-    const blob = await zip.generateAsync({ type: "blob" });
-    const url = URL.createObjectURL(blob);
-    const date = new Date().toISOString().split("T")[0];
-    triggerDownload(url, `Class_WordArt_${date}.zip`);
-    URL.revokeObjectURL(url);
-    setPackingProgress(null);
-    setStatus(null);
-    setBatchProgress(null);
-    setBusy(false);
   };
 
   return (
@@ -733,7 +806,7 @@ function ShapeWordsApp() {
 
           <div className="border-t border-panel-border p-3 space-y-2 shrink-0">
             <div className="text-[10px] tracking-widest uppercase text-amber-accent">
-              Export format: JPG • Professional Print
+              Current export: JPG • Batch export: PNG ZIP
             </div>
             {quality && (
               <div className="border border-panel-border p-2 bg-input/40 space-y-1">
@@ -765,7 +838,7 @@ function ShapeWordsApp() {
               disabled={busy}
               className="w-full py-2.5 border border-amber-accent text-amber-accent text-xs font-bold tracking-widest uppercase hover:bg-amber-tint disabled:opacity-40"
             >
-              📦 Batch Export All
+              📦 Batch Render
             </button>
             <button
               onClick={() => {
@@ -812,6 +885,29 @@ function triggerDownload(href: string, filename: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+async function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Failed to create export blob"));
+        return;
+      }
+      resolve(blob);
+    }, type);
+  });
+}
+
+function toSafeFilenamePart(value: string) {
+  const cleaned = [...value]
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 32 && !/[<>:"/\\|?*]/.test(char);
+    })
+    .join("")
+    .trim();
+  return cleaned || "student";
 }
 
 const PROFESSIONAL_FILLER = [

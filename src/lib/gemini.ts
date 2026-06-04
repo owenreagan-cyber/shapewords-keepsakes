@@ -60,6 +60,7 @@ const EXPANSION_SYSTEM = `You are creating end-of-year keepsake word art for a G
 export async function callWordExpansion(args: {
   name: string;
   traits: string;
+  theme?: string;
   aiExpansionProfile: string;
   preset: string;
   fontFamily: string;
@@ -67,6 +68,7 @@ export async function callWordExpansion(args: {
 }): Promise<ExpansionResponse> {
   const prompt = `Student Name: ${args.name}
 Core traits: ${args.traits}
+Theme: ${args.theme || "Not specified"}
 aiExpansionProfile: ${args.aiExpansionProfile}
 Optimization Preset: ${args.preset}
 Preferred fontFamily: ${args.fontFamily}

@@ -5,6 +5,7 @@ export interface PackOptions {
   height: number;
   name: string;
   words: WordEntry[];
+  theme?: string;
   fontFamily: string;
   bodyFontFamily?: string;
   nameFontFamily?: string;
