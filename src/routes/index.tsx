@@ -48,7 +48,6 @@ type Config = {
   silhouetteStyle: string;
   preset: string;
   resolution: keyof typeof EXPORT_RES;
-  exportFormat: "jpg" | "png" | "pdf";
 };
 
 function defaultConfig(s: Student): Config {
@@ -65,7 +64,6 @@ function defaultConfig(s: Student): Config {
     silhouetteStyle: "Premium Print",
     preset: "Premium Print",
     resolution: "print",
-    exportFormat: "jpg",
   };
 }
 
@@ -231,18 +229,16 @@ function ShapeWordsApp() {
   const handleDownload = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    await renderToCanvas();
-    const mime = config.exportFormat === "png" ? "image/png" : "image/jpeg";
-    const ext = config.exportFormat === "png" ? "png" : "jpg";
-    const data = canvas.toDataURL(mime, 0.95);
-    triggerDownload(data, `${nameField}_WordArt_8x10.${ext}`);
+    await renderToCanvas(canvas, EXPORT_RES.print);
+    const data = canvas.toDataURL("image/jpeg", 0.95);
+    triggerDownload(data, `${nameField}_WordArt_8x10_300dpi.jpg`);
   };
 
   const handleBatchExport = async () => {
     setBusy(true);
     const zip = new JSZip();
     const off = document.createElement("canvas");
-    const res = EXPORT_RES[config.resolution];
+    const res = EXPORT_RES.print;
     for (let i = 0; i < students.length; i++) {
       const s = students[i];
       setBatchProgress({ i: i + 1, total: students.length });
@@ -272,7 +268,7 @@ function ShapeWordsApp() {
         const blob: Blob = await new Promise((resolve) =>
           off.toBlob((b) => resolve(b!), "image/jpeg", 0.95),
         );
-        zip.file(`${s.name}_WordArt_8x10.jpg`, blob);
+        zip.file(`${s.name}_WordArt_8x10_300dpi.jpg`, blob);
       } catch (e) {
         console.warn("Batch fail", s.name, e);
       }
@@ -516,17 +512,9 @@ function ShapeWordsApp() {
           </div>
 
           <div className="border-t border-panel-border p-3 space-y-2 shrink-0">
-            <Field label="Export Format">
-              <Select
-                value={config.exportFormat}
-                onChange={(v) => setConfig((c) => ({ ...c, exportFormat: v as any }))}
-                options={[
-                  { value: "jpg", label: "JPG (Default, Print Quality)" },
-                  { value: "png", label: "PNG" },
-                  { value: "pdf", label: "PDF" },
-                ]}
-              />
-            </Field>
+            <div className="text-[10px] tracking-widest uppercase text-amber-accent">
+              Export format: JPG • 8x10 • 300 DPI
+            </div>
             <button
               onClick={handleDownload}
               disabled={busy}
