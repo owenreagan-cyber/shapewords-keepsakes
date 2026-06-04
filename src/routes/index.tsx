@@ -676,12 +676,15 @@ function ShapeWordsApp() {
                   name: "New Student",
                   shape: "Star silhouette",
                   traits: "kind, smart, creative",
+                  interests: [],
                   theme: "Custom",
                   colorPalette: ["#000000", "#D97706"],
                   fontFamily: "Bebas Neue",
                   density: 90,
                   emphasis: "High",
+                  layoutStrategy: "Center Dominant",
                   aiExpansionProfile: "Kid-friendly Positive Character Traits",
+                  printPreset: "Premium Print",
                 };
                 setStudents((s) => [...s, ns]);
                 setActiveId(id);
