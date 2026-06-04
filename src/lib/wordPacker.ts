@@ -95,49 +95,7 @@ export async function buildMaskFromSvg(svg: string, maskSize = 512): Promise<Uin
   });
 }
 
-async function runWordPackerWorker(
-  mask: Uint8Array,
-  maskSize: number,
-  opts: PackOptions,
-  onProgress?: (progress: number) => void,
-): Promise<PackComputationResult> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("./wordPacker.worker.ts", import.meta.url), {
-      type: "module",
-    });
-
-    const cleanup = () => {
-      worker.onmessage = null;
-      worker.onerror = null;
-      worker.terminate();
-    };
-
-    worker.onmessage = (event: MessageEvent<WordPackerWorkerResponse>) => {
-      const message = event.data;
-      if (message.type === "progress") {
-        onProgress?.(message.progress);
-        return;
-      }
-      if (message.type === "complete") {
-        cleanup();
-        resolve(message.payload);
-        return;
-      }
-      cleanup();
-      reject(new Error(message.error));
-    };
-
-    worker.onerror = (event) => {
-      cleanup();
-      reject(new Error(event.message || "Word packing worker failed"));
-    };
-
-    const request: WordPackerWorkerRequest = { type: "pack", payload: { mask, maskSize, opts } };
-    worker.postMessage(request);
-  });
-}
-
-function drawPlacements(
+export function drawPlacements(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
@@ -158,18 +116,4 @@ function drawPlacements(
     ctx.fillText(placement.word, 0, 0);
     ctx.restore();
   }
-}
-
-export async function packWords(
-  ctx: CanvasRenderingContext2D,
-  mask: Uint8Array,
-  maskSize: number,
-  opts: PackOptions,
-  onProgress?: (progress: number) => void,
-): Promise<PackResult> {
-  onProgress?.(0);
-  const packed = await runWordPackerWorker(mask, maskSize, opts, onProgress);
-  drawPlacements(ctx, opts.width, opts.height, opts.bgColor ?? "#FFFFFF", packed.placements);
-  onProgress?.(100);
-  return packed.result;
 }
