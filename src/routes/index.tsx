@@ -116,12 +116,12 @@ function ShapeWordsApp() {
   }, [shapeSvg]);
 
   const renderToCanvas = useCallback(
-    async (targetCanvas?: HTMLCanvasElement, opts?: { width: number; height: number }) => {
+    async (targetCanvas?: HTMLCanvasElement, sizeOverride?: { w: number; h: number }) => {
       const canvas = targetCanvas ?? canvasRef.current;
       if (!canvas) return null;
-      const res = opts ?? EXPORT_RES[config.resolution];
-      const width = res.w ?? res.width;
-      const height = res.h ?? res.height;
+      const res = sizeOverride ?? EXPORT_RES[config.resolution];
+      const width = res.w;
+      const height = res.h;
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d")!;
