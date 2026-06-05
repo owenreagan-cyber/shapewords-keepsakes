@@ -74,6 +74,7 @@ type Config = {
   preset: string;
   resolution: keyof typeof EXPORT_RES;
   etsyMode: boolean;
+  wordCount: number; // target number of words to pack (incl. name)
 };
 
 type QualityScores = {
@@ -117,6 +118,7 @@ function defaultConfig(s: Student): Config {
     preset: "Premium Print",
     resolution: "print",
     etsyMode: true,
+    wordCount: 150,
   };
 }
 
@@ -369,7 +371,11 @@ function ShapeWordsApp() {
         config,
         size: sizeOverride ?? getCanvasSizeForResolution(config.resolution, orientation),
         svg,
-        words: wordsOverride ?? (words.length > 0 ? words : seedFromTraits(nameField, traitsField)),
+        words: capWords(
+          wordsOverride ?? (words.length > 0 ? words : seedFromTraits(nameField, traitsField)),
+          config.wordCount,
+          nameField,
+        ),
         mask: activeMask.mask,
         maskSize: activeMask.size,
         syncState: true,
