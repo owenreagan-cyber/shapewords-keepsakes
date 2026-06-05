@@ -81,43 +81,48 @@ Return ONLY JSON matching:
   return parsed as ExpansionResponse;
 }
 
-// Image-generation endpoint (Nano Banana). Returns a PNG silhouette as a data URL.
-const IMAGE_API_BASE =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
+// Server-route-backed silhouette generation. Uses Lovable AI Gateway (gpt-image-2).
+// Falls back to local deterministic SVGs when the route or gateway fails.
+const SHAPE_CACHE_PREFIX = "lvbl_shape_v2:";
+
+function getCachedShape(key: string): string | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    return sessionStorage.getItem(SHAPE_CACHE_PREFIX + key);
+  } catch {
+    return null;
+  }
+}
+function setCachedShape(key: string, value: string): void {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(SHAPE_CACHE_PREFIX + key, value);
+  } catch {
+    /* quota */
+  }
+}
 
 export async function callShapeGen(shapeDescription: string, style: string): Promise<string> {
   const deterministicShape = getDeterministicShapeSvg(shapeDescription);
   if (deterministicShape) return deterministicShape;
 
-  const prompt = `A bold, solid pure-black silhouette of: ${shapeDescription}.
-Style reference: ${style}.
-Strict requirements:
-- Pure white (#FFFFFF) background, edge to edge.
-- The subject is a single solid black (#000000) silhouette only — no outlines, no shading, no gradients, no patterns, no text, no watermark, no border.
-- Iconic, instantly recognizable pose for ${shapeDescription}; preserve characteristic features (ears, limbs, accessories).
-- Chunky, thickened, plush-toy proportions so the silhouette has lots of internal area; no thin spindly parts.
-- The silhouette is centered and fills approximately 80% of a square 1:1 frame.
-- Crisp, clean edges. Flat 2D vector-look. No 3D rendering, no photography.`;
+  const cacheKey = `${style}::${shapeDescription}`;
+  const cached = getCachedShape(cacheKey);
+  if (cached) return cached;
 
-  const res = await fetch(`${IMAGE_API_BASE}?key=${getKey()}`, {
+  const res = await fetch("/api/generate-silhouette", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ["IMAGE"] },
-    }),
+    body: JSON.stringify({ shape: shapeDescription, style }),
   });
-  if (!res.ok) throw new Error(`Gemini image ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const parts = data?.candidates?.[0]?.content?.parts ?? [];
-  for (const p of parts) {
-    const inline = p?.inlineData ?? p?.inline_data;
-    if (inline?.data) {
-      const mime = inline.mimeType || inline.mime_type || "image/png";
-      return `data:${mime};base64,${inline.data}`;
-    }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Silhouette route ${res.status}: ${text.slice(0, 200)}`);
   }
-  throw new Error("Gemini image returned no inline image data");
+  const data = (await res.json()) as { dataUrl?: string };
+  if (!data.dataUrl) throw new Error("Silhouette route returned no dataUrl");
+  setCachedShape(cacheKey, data.dataUrl);
+  return data.dataUrl;
 }
 
 // Fallback heart shape
@@ -270,13 +275,29 @@ const FALLBACK_ICE_HOCKEY_PLAYER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" 
   <rect x="282" y="900" width="420" height="42" rx="18" fill="#000"/>
 </svg>`;
 
+// Chunky front-facing teddy bear: head with rounded ears + muzzle, body, arms hanging
+// at sides, legs with paws. Designed for word-packing fill (big interior area).
 const FALLBACK_BEAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <circle cx="320" cy="220" r="90" fill="#000"/>
-  <circle cx="680" cy="220" r="90" fill="#000"/>
-  <circle cx="500" cy="340" r="240" fill="#000"/>
-  <ellipse cx="500" cy="700" rx="280" ry="230" fill="#000"/>
-  <circle cx="320" cy="710" r="110" fill="#000"/>
-  <circle cx="680" cy="710" r="110" fill="#000"/>
+  <!-- Ears (outer + inner kept solid for silhouette) -->
+  <circle cx="280" cy="190" r="115" fill="#000"/>
+  <circle cx="720" cy="190" r="115" fill="#000"/>
+  <!-- Head -->
+  <ellipse cx="500" cy="290" rx="245" ry="215" fill="#000"/>
+  <!-- Muzzle bulge (keeps silhouette readable as a bear face) -->
+  <ellipse cx="500" cy="370" rx="150" ry="105" fill="#000"/>
+  <!-- Neck wedge -->
+  <rect x="430" y="450" width="140" height="80" fill="#000"/>
+  <!-- Body (rounded, wide for word packing) -->
+  <ellipse cx="500" cy="690" rx="305" ry="270" fill="#000"/>
+  <!-- Arms hanging at sides -->
+  <ellipse cx="215" cy="640" rx="105" ry="180" fill="#000"/>
+  <ellipse cx="785" cy="640" rx="105" ry="180" fill="#000"/>
+  <!-- Paws on arms -->
+  <circle cx="215" cy="820" r="92" fill="#000"/>
+  <circle cx="785" cy="820" r="92" fill="#000"/>
+  <!-- Feet -->
+  <ellipse cx="370" cy="930" rx="130" ry="62" fill="#000"/>
+  <ellipse cx="630" cy="930" rx="130" ry="62" fill="#000"/>
 </svg>`;
 
 const FALLBACK_ANIMAL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
@@ -352,7 +373,7 @@ const FALLBACK_STAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 </svg>`;
 
 const SHAPE_SVG_RULES: Array<{ pattern: RegExp; svg: string; deterministic: boolean }> = [
-  { pattern: /(teddy|red panda|bear)/, svg: FALLBACK_BEAR_SVG, deterministic: true },
+  { pattern: /(teddy|red panda|bear)/, svg: FALLBACK_BEAR_SVG, deterministic: false },
   {
     pattern: /(graceful.*dancer.*leaping|girl leaping in dance|leaping in dance)/,
     svg: FALLBACK_LEAPING_GIRL_DANCER_SVG,
