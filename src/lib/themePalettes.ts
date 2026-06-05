@@ -21,7 +21,7 @@ export function pickBestPreset(args: {
     return { palette: ["#0A0A0A", "#1E40AF", "#DC2626"], fontFamily: "Bebas Neue" };
   }
   if (/(boy|adventure|loyal|brave|explorer|knight|dragon|robot|truck|dino)/.test(hay)) {
-    return { palette: ["#0F172A", "#1E3A8A", "#F59E0B"], fontFamily: "Archivo Black" in {} ? "Archivo Black" : "Oswald" };
+    return { palette: ["#0F172A", "#1E3A8A", "#F59E0B"], fontFamily: "Oswald" };
   }
   if (/(girl|kindness|elegan|princess|flower|butterfly|unicorn|heart|warm)/.test(hay)) {
     return { palette: ["#1F1147", "#9333EA", "#F472B6"], fontFamily: "Playfair Display" };
