@@ -86,6 +86,9 @@ const IMAGE_API_BASE =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
 
 export async function callShapeGen(shapeDescription: string, style: string): Promise<string> {
+  const deterministicShape = getDeterministicShapeSvg(shapeDescription);
+  if (deterministicShape) return deterministicShape;
+
   const prompt = `A bold, solid pure-black silhouette of: ${shapeDescription}.
 Style reference: ${style}.
 Strict requirements:
@@ -127,6 +130,29 @@ const FALLBACK_HUMAN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
   <ellipse cx="760" cy="300" rx="190" ry="70" transform="rotate(22 760 300)" fill="#000"/>
   <ellipse cx="360" cy="690" rx="78" ry="215" transform="rotate(-25 360 690)" fill="#000"/>
   <ellipse cx="640" cy="690" rx="78" ry="215" transform="rotate(25 640 690)" fill="#000"/>
+</svg>`;
+
+const FALLBACK_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="545" cy="145" r="82" fill="#000"/>
+  <ellipse cx="545" cy="355" rx="128" ry="195" fill="#000"/>
+  <ellipse cx="300" cy="290" rx="180" ry="58" transform="rotate(-26 300 290)" fill="#000"/>
+  <ellipse cx="760" cy="292" rx="175" ry="56" transform="rotate(27 760 292)" fill="#000"/>
+  <ellipse cx="430" cy="648" rx="62" ry="220" transform="rotate(-34 430 648)" fill="#000"/>
+  <ellipse cx="690" cy="664" rx="64" ry="224" transform="rotate(28 690 664)" fill="#000"/>
+  <ellipse cx="758" cy="874" rx="92" ry="38" transform="rotate(14 758 874)" fill="#000"/>
+</svg>`;
+
+const FALLBACK_CHEERLEADER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="500" cy="150" r="86" fill="#000"/>
+  <ellipse cx="500" cy="375" rx="132" ry="208" fill="#000"/>
+  <ellipse cx="262" cy="326" rx="160" ry="64" transform="rotate(-12 262 326)" fill="#000"/>
+  <ellipse cx="738" cy="326" rx="160" ry="64" transform="rotate(12 738 326)" fill="#000"/>
+  <circle cx="145" cy="335" r="96" fill="#000"/>
+  <circle cx="855" cy="335" r="96" fill="#000"/>
+  <ellipse cx="410" cy="694" rx="72" ry="212" transform="rotate(-17 410 694)" fill="#000"/>
+  <ellipse cx="590" cy="694" rx="72" ry="212" transform="rotate(17 590 694)" fill="#000"/>
+  <ellipse cx="360" cy="900" rx="96" ry="42" fill="#000"/>
+  <ellipse cx="640" cy="900" rx="96" ry="42" fill="#000"/>
 </svg>`;
 
 const FALLBACK_BEAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
@@ -210,14 +236,30 @@ const FALLBACK_STAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
   <path fill="#000" d="M500 80 L610 360 L920 380 L680 560 L760 870 L500 700 L240 870 L320 560 L80 380 L390 360 Z"/>
 </svg>`;
 
+function getDeterministicShapeSvg(shapeDescription: string): string | null {
+  const normalized = shapeDescription.toLowerCase();
+  if (/(teddy|red panda|bear)/.test(normalized)) return FALLBACK_BEAR_SVG;
+  if (/(cheerleader|pom-?pom|pom pom|cheer)/.test(normalized)) return FALLBACK_CHEERLEADER_SVG;
+  if (/(dancer|dance|ballet|gymnast|tumbling|leaping)/.test(normalized))
+    return FALLBACK_DANCER_SVG;
+  if (/(game controller|controller|gamepad|video game)/.test(normalized))
+    return FALLBACK_CONTROLLER_SVG;
+  if (/(helmet)/.test(normalized)) return FALLBACK_HELMET_SVG;
+  return null;
+}
+
 export function getFallbackShapeSvg(shapeDescription: string): string {
   const normalized = shapeDescription.toLowerCase();
 
   if (/(teddy|red panda|bear)/.test(normalized)) return FALLBACK_BEAR_SVG;
+  if (/(cheerleader|pom-?pom|pom pom|cheer)/.test(normalized)) return FALLBACK_CHEERLEADER_SVG;
+  if (/(dancer|dance|ballet|gymnast|tumbling|leaping)/.test(normalized))
+    return FALLBACK_DANCER_SVG;
   if (/(eagle|bird|wing|flying)/.test(normalized)) return FALLBACK_BIRD_SVG;
   if (/(dog|horse|gallop|cat|fox|wolf|panda)/.test(normalized)) return FALLBACK_ANIMAL_SVG;
   if (/(snake|serpent)/.test(normalized)) return FALLBACK_SNAKE_SVG;
-  if (/(controller|gamepad|video game)/.test(normalized)) return FALLBACK_CONTROLLER_SVG;
+  if (/(game controller|controller|gamepad|video game)/.test(normalized))
+    return FALLBACK_CONTROLLER_SVG;
   if (/(lightning|bolt)/.test(normalized)) return FALLBACK_LIGHTNING_SVG;
   if (/(robot|gear|engineering)/.test(normalized)) return FALLBACK_GEAR_SVG;
   if (/(laptop|computer)/.test(normalized)) return FALLBACK_LAPTOP_SVG;
