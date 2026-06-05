@@ -405,7 +405,11 @@ const SHAPE_SVG_RULES: Array<{ pattern: RegExp; svg: string; deterministic: bool
     deterministic: true,
   },
   { pattern: /(eagle|bird|wing|flying)/, svg: FALLBACK_BIRD_SVG, deterministic: true },
-  { pattern: /(dog|horse|gallop|cat|fox|wolf|panda)/, svg: FALLBACK_ANIMAL_SVG, deterministic: true },
+  {
+    pattern: /(dog|horse|gallop|cat|fox|wolf|panda)/,
+    svg: FALLBACK_ANIMAL_SVG,
+    deterministic: true,
+  },
   { pattern: /(snake|serpent)/, svg: FALLBACK_SNAKE_SVG, deterministic: true },
   {
     pattern: /(game controller|controller|gamepad|video game)/,
