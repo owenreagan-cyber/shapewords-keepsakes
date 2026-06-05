@@ -668,15 +668,26 @@ function ShapeWordsApp() {
                 />
               </label>
               <button
-                onClick={handleGenerate}
+                onClick={handleGenerateWords}
                 disabled={busy}
-                className="w-full mt-2 py-2.5 text-xs font-bold tracking-widest uppercase text-amber-foreground disabled:opacity-40"
+                className="w-full mt-2 py-2.5 text-xs font-bold tracking-widest uppercase disabled:opacity-40"
                 style={{
                   background: "linear-gradient(135deg, #D97706, #B45309)",
                   color: "#0A0A0A",
                 }}
               >
-                {busy ? "Working..." : "✨ Generate Best Possible Design"}
+                {busy ? "Working..." : "✨ Generate Words"}
+              </button>
+              <button
+                onClick={handleBestSettings}
+                disabled={busy}
+                className="w-full mt-2 py-2.5 text-xs font-bold tracking-widest uppercase disabled:opacity-40"
+                style={{
+                  background: "#0A0A0A",
+                  color: "#F5F5F5",
+                }}
+              >
+                {busy ? "Working..." : "🎯 Best Framable Settings"}
               </button>
             </Section>
           </div>
