@@ -45,17 +45,74 @@ async function callGemini(systemInstruction: string, userPrompt: string): Promis
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      generationConfig: { temperature: 0.8, maxOutputTokens: 8192 },
+      generationConfig: {
+        temperature: 0.8,
+        maxOutputTokens: 32768,
+        responseMimeType: "application/json",
+      },
     }),
   });
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text()}`);
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no text");
+  const finish = data?.candidates?.[0]?.finishReason;
+  if (!text) throw new Error(`Gemini returned no text (finishReason=${finish})`);
   return stripFences(text);
 }
 
-const EXPANSION_SYSTEM = `You are creating end-of-year keepsake word art for a Grade 4 classroom (ages 9-10). Generate 300-500 school-appropriate positive words describing this student. Rules: (1) The student NAME must appear exactly ONCE with importanceScore: 1000. (2) Top 5-8 core traits: scores 85-100. (3) Supporting synonyms and related qualities: scores 40-80. (4) Filler micro-words: scores 10-35. (5) Categorize each word: Character | Leadership | Academics | Creativity | Athletics | Friendship | Interests. (6) Remove ALL: duplicates, appearance-based words, romantic language, anything inappropriate for a 9-year-old. (7) Focus expansion on the provided aiExpansionProfile. (8) Return ONLY valid JSON, no markdown, no backticks.`;
+// Salvage parser: handles truncated JSON by closing arrays/objects mid-stream.
+function parseExpansionLoose(text: string): ExpansionResponse | null {
+  try {
+    return JSON.parse(text) as ExpansionResponse;
+  } catch {
+    // Find "words":[ … and pull complete {...} entries.
+    const wordsStart = text.indexOf('"words"');
+    if (wordsStart < 0) return null;
+    const arrStart = text.indexOf("[", wordsStart);
+    if (arrStart < 0) return null;
+    const words: WordEntry[] = [];
+    let i = arrStart + 1;
+    while (i < text.length) {
+      // skip whitespace/commas
+      while (i < text.length && /[\s,]/.test(text[i])) i++;
+      if (text[i] === "]" || i >= text.length) break;
+      if (text[i] !== "{") break;
+      // find matching closing brace
+      let depth = 0;
+      let j = i;
+      let inStr = false;
+      let esc = false;
+      for (; j < text.length; j++) {
+        const c = text[j];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (c === "\\") esc = true;
+          else if (c === '"') inStr = false;
+          continue;
+        }
+        if (c === '"') inStr = true;
+        else if (c === "{") depth++;
+        else if (c === "}") {
+          depth--;
+          if (depth === 0) { j++; break; }
+        }
+      }
+      if (depth !== 0) break; // incomplete trailing object
+      const chunk = text.slice(i, j);
+      try {
+        const obj = JSON.parse(chunk) as WordEntry;
+        if (obj && typeof obj.word === "string") words.push(obj);
+      } catch {
+        /* skip */
+      }
+      i = j;
+    }
+    if (words.length === 0) return null;
+    return { words, design: {} as DesignSpec };
+  }
+}
+
+const EXPANSION_SYSTEM = `You are creating end-of-year keepsake word art for a Grade 4 classroom (ages 9-10). Generate EXACTLY 180 school-appropriate positive words describing this student. Rules: (1) The student NAME must appear exactly ONCE with importanceScore: 1000. (2) Top 5-8 core traits: scores 85-100. (3) Supporting synonyms and related qualities: scores 40-80. (4) Filler micro-words: scores 10-35. (5) Categorize each word: Character | Leadership | Academics | Creativity | Athletics | Friendship | Interests. (6) Remove ALL: duplicates, appearance-based words, romantic language, anything inappropriate for a 9-year-old. (7) Focus expansion on the provided aiExpansionProfile. (8) Use SHORT single words (1-2 syllables when possible). (9) Return ONLY valid JSON, no markdown, no backticks.`;
 
 export async function callWordExpansion(args: {
   name: string;
@@ -77,9 +134,13 @@ Preferred accentColor: ${args.accentColor}
 Return ONLY JSON matching:
 {"words":[{"word":string,"category":string,"importanceScore":number}], "design":{"fontFamily":string,"accentColor":string,"density":number,"scaling":number,"adherence":number,"centerBias":number,"rotation":number,"randomness":number}}`;
   const text = await callGemini(EXPANSION_SYSTEM, prompt);
-  const parsed = JSON.parse(text);
-  return parsed as ExpansionResponse;
+  const parsed = parseExpansionLoose(text);
+  if (!parsed || !parsed.words || parsed.words.length < 30) {
+    throw new Error(`Gemini returned only ${parsed?.words?.length ?? 0} usable words`);
+  }
+  return parsed;
 }
+
 
 // Server-route-backed silhouette generation. Uses Lovable AI Gateway (gpt-image-2).
 // Falls back to local deterministic SVGs when the route or gateway fails.
