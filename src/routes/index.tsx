@@ -1,6 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-// @ts-expect-error - file-saver is CJS, default import works at runtime
 import { saveAs } from "file-saver";
 import JSZip from "jszip";
 import {
