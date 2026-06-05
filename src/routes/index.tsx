@@ -156,7 +156,7 @@ function ShapeWordsApp() {
     };
   }, []);
 
-  // when active student changes, reset fields
+  // when active student changes, reset fields and auto-generate their shape
   useEffect(() => {
     setNameField(active.name);
     setTraitsField(active.traits);
@@ -165,6 +165,26 @@ function ShapeWordsApp() {
     setWords([]);
     setShapeSvg(FALLBACK_HEART_SVG);
     setQuality(null);
+
+    let cancel = false;
+    setBusy(true);
+    setStatus("Generating shape...");
+    callShapeGen(active.shape, "Premium Print")
+      .then((svg) => {
+        if (!cancel) setShapeSvg(svg);
+      })
+      .catch(() => {
+        // keep fallback heart on error
+      })
+      .finally(() => {
+        if (!cancel) {
+          setBusy(false);
+          setStatus(null);
+        }
+      });
+    return () => {
+      cancel = true;
+    };
   }, [activeId]); // eslint-disable-line
 
   // build mask whenever svg changes
