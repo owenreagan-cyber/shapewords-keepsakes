@@ -171,7 +171,9 @@ function computePlacements(
 ): PackComputationResult {
   const { width, height } = opts;
   const minDim = Math.min(width, height);
-  const EDGE_PAD = Math.max(2, minDim * 0.006);
+  // Generous edge buffer so glyphs never kiss the silhouette outline.
+  const EDGE_PAD = Math.max(6, minDim * 0.014);
+
 
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
