@@ -170,15 +170,37 @@ function computePlacements(
   opts: PackOptions,
 ): PackComputationResult {
   const { width, height } = opts;
-  const minDim = Math.min(width, height);
-  // Generous edge buffer so glyphs never kiss the silhouette outline.
-  const EDGE_PAD = Math.max(6, minDim * 0.014);
 
+  // --- Mask bounding box (in canvas pixel space) ---
+  // Font sizes & search seeding scale to the SILHOUETTE, not the canvas, so a
+  // small mask inside a large canvas still gets correctly-sized words.
+  let mnX = maskSize, mnY = maskSize, mxX = -1, mxY = -1;
+  for (let y = 0; y < maskSize; y++) {
+    const row = y * maskSize;
+    for (let x = 0; x < maskSize; x++) {
+      if (mask[row + x] === 1) {
+        if (x < mnX) mnX = x;
+        if (x > mxX) mxX = x;
+        if (y < mnY) mnY = y;
+        if (y > mxY) mxY = y;
+      }
+    }
+  }
+  if (mxX < 0) { mnX = 0; mnY = 0; mxX = maskSize - 1; mxY = maskSize - 1; }
+  const bboxX = (mnX / maskSize) * width;
+  const bboxY = (mnY / maskSize) * height;
+  const bboxW = ((mxX - mnX + 1) / maskSize) * width;
+  const bboxH = ((mxY - mnY + 1) / maskSize) * height;
+  const shapeH = bboxH;
+  const shapeMin = Math.min(bboxW, bboxH);
+
+  // Generous edge buffer so glyphs never kiss the silhouette outline.
+  const EDGE_PAD = Math.max(6, shapeMin * 0.014);
 
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
   const nameFont = opts.nameFontFamily ?? opts.fontFamily;
-  const grid = new Grid(Math.max(20, minDim / 40));
+  const grid = new Grid(Math.max(20, shapeMin / 40));
 
   const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40;
@@ -186,8 +208,9 @@ function computePlacements(
   const randomness = (opts.randomness / 100) * (etsy ? 0.6 : 1);
   const adherence = opts.adherence / 100;
 
-  const cx = width / 2;
-  const cy = height / 2;
+  // Center placements on the silhouette centroid, not the canvas.
+  const cx = bboxX + bboxW / 2;
+  const cy = bboxY + bboxH / 2;
 
   const sorted = [...opts.words].sort((a, b) => b.importanceScore - a.importanceScore);
   const nameEntry = sorted.find((w) => w.word.toLowerCase() === opts.name.toLowerCase());
