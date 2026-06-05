@@ -289,15 +289,15 @@ function computePlacements(
     const bw = angle ? th : tw;
     const bh = angle ? tw : th;
 
-    const startR = minDim * (1 - opts.centerBias / 100) * 0.1;
-    const maxR = Math.max(width, height);
+    const startR = shapeMin * (1 - opts.centerBias / 100) * 0.1;
+    const maxR = Math.max(bboxW, bboxH);
     const step = Math.max(2, fontSize * 0.15 * (1 + randomness));
     const maxAttempts = tier === 5 ? 400 : tier === 4 ? 1200 : 2000;
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
 
     // adherence-driven inset on top of EDGE_PAD
-    const pad = Math.max(EDGE_PAD, EDGE_PAD + minDim * 0.004 * adherence);
+    const pad = Math.max(EDGE_PAD, EDGE_PAD + shapeMin * 0.004 * adherence);
 
     for (let i = 0; i < maxAttempts; i++) {
       const x = cx + Math.cos(theta) * r;
