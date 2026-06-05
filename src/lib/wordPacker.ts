@@ -118,12 +118,22 @@ export async function detectMaskOrientation(svgOrUrl: string): Promise<MaskOrien
   }
 }
 
-// Build alpha mask from an SVG string. Returns 0/1 array sized maskSize x maskSize.
-export async function buildMaskFromSvg(svg: string, maskSize = 512): Promise<Uint8Array> {
+// Build alpha mask from an SVG string OR an image URL (data:/http:). 0/1 array maskSize x maskSize.
+export async function buildMaskFromSvg(svgOrUrl: string, maskSize = 512): Promise<Uint8Array> {
   return new Promise((resolve, reject) => {
-    const blob = new Blob([svg], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
+    const source = svgOrUrl.trim();
+    const isSvgMarkup = source.startsWith("<svg") || source.startsWith("<?xml");
+    let url: string;
+    let revoke = false;
+    if (isSvgMarkup) {
+      const blob = new Blob([source], { type: "image/svg+xml" });
+      url = URL.createObjectURL(blob);
+      revoke = true;
+    } else {
+      url = source;
+    }
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       const c = document.createElement("canvas");
       c.width = maskSize;
@@ -138,11 +148,11 @@ export async function buildMaskFromSvg(svg: string, maskSize = 512): Promise<Uin
         const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
         out[j] = lum < 128 ? 1 : 0;
       }
-      URL.revokeObjectURL(url);
+      if (revoke) URL.revokeObjectURL(url);
       resolve(out);
     };
     img.onerror = (e) => {
-      URL.revokeObjectURL(url);
+      if (revoke) URL.revokeObjectURL(url);
       reject(e);
     };
     img.src = url;
