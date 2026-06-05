@@ -12,6 +12,7 @@ export interface PackOptions {
   accentColor: string;
   primaryColor?: string;
   bgColor?: string;
+  palette?: string[]; // ordered dark → light, used for tier-based color mapping
   density: number; // 10-100
   scaling: number; // 10-50
   adherence: number; // 10-100
