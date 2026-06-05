@@ -224,12 +224,15 @@ function computePlacements(
         continue;
       }
 
-      const insideMask =
-        maskAt(mask, maskSize, x / width, y / height) &&
-        maskAt(mask, maskSize, box.x / width, box.y / height) &&
-        maskAt(mask, maskSize, (box.x + box.w) / width, (box.y + box.h) / height);
+      // Dense containment test. Inset shrinks each candidate box ~3% so glyph
+      // ascenders/descenders never poke past the silhouette outline.
+      const inset = 0.03 + 0.04 * adherence; // higher adherence → tighter
+      const insideMask = boxInsideMask(mask, maskSize, box, width, height, inset);
 
-      if (mustBeInMask && !insideMask) {
+      // Frame-quality keepsake: ALWAYS require the word inside the mask.
+      // `mustBeInMask` is kept in the signature for API stability but ignored.
+      void mustBeInMask;
+      if (!insideMask) {
         theta += GOLDEN_ANGLE;
         r += step * 0.05;
         continue;
