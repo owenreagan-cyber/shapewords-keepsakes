@@ -1428,8 +1428,11 @@ function drawMaskOutline(
 
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  // Thicken by drawing the edge layer multiple times with 1px offsets.
-  const thickness = Math.max(3, Math.round(Math.min(width, height) / 250));
+  ctx.globalAlpha = mode === "decorative" ? 1 : 0.5;
+  const thickness =
+    mode === "decorative"
+      ? Math.max(4, Math.round(Math.min(width, height) / 250))
+      : Math.max(1, Math.round(Math.min(width, height) / 1200));
   for (let dx = -thickness; dx <= thickness; dx++) {
     for (let dy = -thickness; dy <= thickness; dy++) {
       if (dx * dx + dy * dy > thickness * thickness) continue;
