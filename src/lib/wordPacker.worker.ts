@@ -341,17 +341,17 @@ function computePlacements(
 
   // --- Tier 1: name, locked to center, registered FIRST ---
   const nameText = (opts.name || "").trim();
-  // Reference-art sizing: ~10% of canvas height, with small emphasis nudge.
+  // Reference-art sizing: ~10% of SILHOUETTE height, with small emphasis nudge.
   const targetNameSize =
-    height *
+    shapeH *
     ((etsy ? 0.085 : 0.10) + 0.01 * Math.min(1, Math.max(-1, emphasisMul - 1))) *
     scaleMul;
-  const maxNameWidth = width * 0.55;
+  const maxNameWidth = bboxW * 0.55;
   let nameSize = targetNameSize;
   if (nameText) {
     let measured = measureWord(nameText, nameSize, nameFont, 800);
     if (measured > maxNameWidth) nameSize = nameSize * (maxNameWidth / measured);
-    const minNameSize = Math.max(24, height * 0.05);
+    const minNameSize = Math.max(18, shapeH * 0.05);
     if (nameSize < minNameSize) nameSize = minNameSize;
     measured = measureWord(nameText, nameSize, nameFont, 800);
     const nameBox: Box = {
@@ -381,7 +381,7 @@ function computePlacements(
 
   // --- Tier 2: large, dark, horizontal-only ---
   for (const w of tier2) {
-    const fs = height * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
+    const fs = shapeH * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
     place(w.word, fs, color, 2, bodyFont, 700);
     completedUnits++;
@@ -392,7 +392,7 @@ function computePlacements(
 
   // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
   for (const w of tier3) {
-    const fs = height * (etsy ? 0.017 : 0.019) * scaleMul;
+    const fs = shapeH * (etsy ? 0.017 : 0.019) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
     place(w.word, fs, color, 3, bodyFont, 500);
     completedUnits++;
@@ -401,7 +401,7 @@ function computePlacements(
 
   // --- Tier 4: small, mid color dominant — always try ---
   for (const w of tier4) {
-    const fs = height * (etsy ? 0.0105 : 0.0115) + (Math.random() - 0.5) * 1.5;
+    const fs = shapeH * (etsy ? 0.0105 : 0.0115) + (Math.random() - 0.5) * 1.5;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
     place(w.word, fs, color, 4, bodyFont, 400);
     completedUnits++;
@@ -410,8 +410,8 @@ function computePlacements(
 
   // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
   if (pool.length > 0) {
-    const MIN_FONT_PT = 6;
-    const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.010 : 0.011));
+    const MIN_FONT_PT = Math.max(6, shapeMin * 0.006);
+    const startFs = Math.max(MIN_FONT_PT, shapeH * (etsy ? 0.010 : 0.011));
     const HARD_CAP = etsy ? 2000 : 5000;
     const MAX_CONSEC_FAIL = 200; // stop only after deep saturation
     const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
