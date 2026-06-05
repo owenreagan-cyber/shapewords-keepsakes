@@ -557,7 +557,8 @@ function computePlacements(
 
 
 
-  const coverage = placedTotal === 0 ? 0 : placedInsideMask / placedTotal;
+  // Real silhouette area coverage (filled mask cells / total mask cells).
+  const coverage = maskCellCount === 0 ? 0 : occupiedCount / maskCellCount;
   const uniqueCount = uniqueWordsSeen.size;
   const duplicateCount = Math.max(0, placedTotal - uniqueCount);
   const diversityScore = placedTotal === 0 ? 0 : (uniqueCount / placedTotal) * 100;
