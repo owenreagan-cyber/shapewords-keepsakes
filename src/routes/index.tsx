@@ -74,6 +74,7 @@ type Config = {
   preset: string;
   resolution: keyof typeof EXPORT_RES;
   etsyMode: boolean;
+  wordCount: number; // target number of words to pack (incl. name)
 };
 
 type QualityScores = {
@@ -117,6 +118,7 @@ function defaultConfig(s: Student): Config {
     preset: "Premium Print",
     resolution: "print",
     etsyMode: true,
+    wordCount: 150,
   };
 }
 
@@ -369,7 +371,11 @@ function ShapeWordsApp() {
         config,
         size: sizeOverride ?? getCanvasSizeForResolution(config.resolution, orientation),
         svg,
-        words: wordsOverride ?? (words.length > 0 ? words : seedFromTraits(nameField, traitsField)),
+        words: capWords(
+          wordsOverride ?? (words.length > 0 ? words : seedFromTraits(nameField, traitsField)),
+          config.wordCount,
+          nameField,
+        ),
         mask: activeMask.mask,
         maskSize: activeMask.size,
         syncState: true,
@@ -667,6 +673,23 @@ function ShapeWordsApp() {
                   className="accent-amber-accent"
                 />
               </label>
+              <Field label={`Word Count (${config.wordCount})`}>
+                <input
+                  type="number"
+                  min={20}
+                  max={300}
+                  step={10}
+                  value={config.wordCount}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    setConfig((c) => ({
+                      ...c,
+                      wordCount: Number.isFinite(n) ? Math.min(300, Math.max(20, n)) : 150,
+                    }));
+                  }}
+                  className={inputCls}
+                />
+              </Field>
               <button
                 onClick={handleGenerateWords}
                 disabled={busy}
@@ -1239,6 +1262,18 @@ function normalizeWordEntries(name: string, entries: WordEntry[], traits: string
   }
 
   return [{ word: name, category: "Name", importanceScore: 95 }, ...normalized.slice(0, 320)];
+}
+
+function capWords(entries: WordEntry[], maxCount: number, name: string): WordEntry[] {
+  const cap = Math.max(1, Math.floor(maxCount || 1));
+  if (entries.length <= cap) return entries;
+  const lowerName = (name || "").toLowerCase();
+  const nameIdx = entries.findIndex((e) => (e.word || "").toLowerCase() === lowerName);
+  if (nameIdx <= 0) return entries.slice(0, cap);
+  // Keep the name entry, then fill the rest in original order.
+  const nameEntry = entries[nameIdx];
+  const rest = entries.filter((_, i) => i !== nameIdx).slice(0, cap - 1);
+  return [nameEntry, ...rest];
 }
 
 function seedFromTraits(name: string, traits: string): WordEntry[] {
