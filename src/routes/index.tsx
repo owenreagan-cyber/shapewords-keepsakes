@@ -348,6 +348,7 @@ function ShapeWordsApp() {
       sizeOverride?: { w: number; h: number },
       wordsOverride?: WordEntry[],
       shapeOverride?: string,
+      paletteOverride?: string[],
     ) => {
       const canvas = targetCanvas ?? canvasRef.current;
       if (!canvas) return null;
@@ -371,6 +372,7 @@ function ShapeWordsApp() {
         mask: activeMask.mask,
         maskSize: activeMask.size,
         syncState: true,
+        paletteOverride,
       });
     },
     [
