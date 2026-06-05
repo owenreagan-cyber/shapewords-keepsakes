@@ -23,7 +23,7 @@ export interface ExpansionResponse {
 }
 
 const API_BASE =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 function getKey(): string {
   const k = import.meta.env?.VITE_GEMINI_API_KEY;
