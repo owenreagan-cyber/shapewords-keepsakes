@@ -1,61 +1,36 @@
-## Goal
+## Root cause (confirmed in browser)
 
-Replace the single "Generate Best Possible Design" button with a two-step flow the user controls explicitly, harden the word filter for a Grade-4 classroom, drive color from the student's theme, and ship a true 5×10 @ 300 DPI JPG export.
+I reproduced Abby in the preview. After "Generate Words" the source list contains **162 unique words**, but only **6 are placed** (Abby, sweet, kind, caring, warm, gentle). Quality panel shows `162 unique · 0 duplicate`, coverage 81, balance 2.
 
-## UI changes (`src/routes/index.tsx`)
+The packer is healthy — the bug is **font sizing**. In `wordPacker.worker.ts` every tier's font size is computed from the **canvas height** (e.g. `height * 0.085` for the name, `height * 0.042` for tier 2). The teddy-bear silhouette only occupies a small fraction of the 3000x3750 canvas, so canvas-relative fonts become huge relative to the silhouette's interior. The name + a handful of tier-2 traits fill the whole shape and nothing else fits. The packer then bails after `MAX_CONSEC_FAIL` for tier 5.
 
-Replace the single amber button in the AI Optimizer section with two stacked buttons (and keep Etsy Mode toggle above them):
+The earlier change to add `wordCount`/`capWords` is fine — the input list is large; the placer is the bottleneck.
 
-1. **"Generate Words"** (primary, amber)
-   - Calls Gemini word expansion only (no re-pack, no layout tweaks).
-   - Runs the school-appropriate filter on the returned list before storing in `words` state.
-   - Status: "Generating school-safe words…".
-   - On success: re-pack once with current config so the canvas reflects the new vocabulary.
+## Fix
 
-2. **"Best Framable Settings"** (secondary, dark)
-   - Does NOT call Gemini. Operates on whatever words are currently loaded (seed or generated).
-   - Forces a known-good config for legibility + density:
-     - `etsyMode: true, emphasis: 4, density: 100, scaling: 22, adherence: 95, centerBias: 85, rotation: 15, randomness: 10`
-     - `fontFamily`: pick from a theme map (sports → "Bebas Neue", dance → "Cormorant", boy → "Archivo Black", girl → "Outfit", default keeps current).
-   - Builds a **3-color palette** matched to the theme/shape (see below), passes it as `palette` override into the render.
-   - Re-packs up to 3 attempts, keeps highest `coverage + balanceScore`, then renders the winner once (clears canvas first).
+Make all sizes silhouette-relative instead of canvas-relative.
 
-The existing `handleGenerate` becomes two functions: `handleGenerateWords` and `handleBestSettings`. The 4-attempt refinement loop moves into `handleBestSettings`.
+### 1. `src/lib/wordPacker.worker.ts`
 
-## School-appropriate filter (`src/lib/gemini.ts`)
+- Compute the **mask bounding box** (min/max x,y of filled cells) once per pack call and convert it to pixel space using canvas width/height.
+- Derive a `shapeH = bbox.h` and `shapeMin = min(bbox.w, bbox.h)`; replace every `height * K` in tier 1–5 font-size formulas with `shapeH * K` (name target ~10% of `shapeH`, tier 2 ~4.2%, tier 3 ~1.9%, tier 4 ~1.15%, tier 5 ~1.0%, MIN_FONT_PT scaled from `shapeMin`).
+- Replace `minDim` used for `EDGE_PAD`, search radius `startR`, and `maxR` with the bbox-derived `shapeMin` / bbox dimensions, so seeding / padding stay proportional to the shape.
+- Keep the name anchored at `cx, cy` but clamp its width to `bbox.w * 0.55` instead of `width * 0.55` so it never overflows a narrow silhouette.
+- Lower the tier-5 `MAX_CONSEC_FAIL` floor only after the bbox is mostly filled (raise budget to ~400) so small shapes still saturate.
 
-Add a `BANNED_WORDS` set covering appearance/romantic/age-inappropriate terms (e.g. `cute, beautiful, sexy, hot, pretty, gorgeous, attractive, handsome, adorable, lovely`, plus any word with `love` outside `loving/loved/lovable` … finalized list in code). Export `sanitizeWords(entries)` that lowercases & filters, drops banned exact matches and substrings of banned roots, and ensures the student name survives. Apply it inside `callWordExpansion` before returning, AND in the route after seed expansion.
+### 2. `src/routes/index.tsx` — "Best Framable Settings"
 
-## Theme-driven 3-color palette
+- Reduce `scaling` default from 22 → 14 and `emphasis` from 4 → 3 now that sizing auto-fits the silhouette (otherwise tier 2 still dwarfs everything in a small shape).
+- Keep `density: 100`, `adherence: 92` (drop 95 → 92 — at 95 the extra inset pad eats small silhouettes).
+- Keep the 3-attempt best-of loop and palette override.
 
-Add a helper in `src/lib/students.ts` (or a new `src/lib/themePalettes.ts`) that returns `[dark, mid, accent]` keyed by theme keywords:
+### 3. Verification
 
-- **Sports / Athletics / Energy / Leadership** → `["#0A0A0A", "#1E40AF", "#DC2626"]` (black + navy + red)
-- **Dance / Performance / Artistic / Joy** → `["#1A0B2E", "#7C3AED", "#EC4899"]` (plum + violet + pink)
-- **Boy themes (Adventure, Loyalty, default male shape)** → `["#0F172A", "#1E3A8A", "#F59E0B"]` (slate + navy + amber)
-- **Girl themes (Warm Kindness, Elegance, Joy)** → `["#1F1147", "#9333EA", "#F472B6"]` (deep purple + violet + rose)
-- Fallback: current `student.colorPalette` + `mix(primary, bg, 0.55)`.
+After the edit I'll re-run Abby in the preview and confirm placedCount jumps from 6 into the 80–150+ range with words filling the bear silhouette without overflowing it. I'll also spot-check one non-default shape (e.g. Grayson's football pose) to ensure landscape silhouettes still work.
 
-`handleBestSettings` calls this helper, then passes the resulting array as `palette` through the existing `PackOptions.palette` field (already wired into the worker).
+## Files touched
 
-## 5×10 @ 300 DPI export (`src/routes/index.tsx`)
+- `src/lib/wordPacker.worker.ts` — bbox-based sizing + padding
+- `src/routes/index.tsx` — Best Framable preset tweaks
 
-- Update `EXPORT_RES.tall` label to `"1500x3000px (5x10 @ 300 DPI)"` and set `w: 1500, h: 3000`.
-- Add `ORIENTATION_OUTPUT_RES_5x10 = { portrait: { w: 1500, h: 3000 }, landscape: { w: 3000, h: 1500 } }`.
-- `handleDownload`:
-  - Render to `5x10` size by orientation.
-  - Export as JPEG quality `0.95`.
-  - Filename: `${nameField}_WordArt_5x10_300dpi.jpg`.
-- Leave existing 8×10 preset available in the resolution dropdown; the download button always uses 5×10 per the request.
-
-## Out of scope
-
-- Worker packer internals (already tuned in the previous turn).
-- Silhouette generation route.
-- New sliders or preset entries.
-
-## Verify
-
-- Click "Generate Words" → words list refreshes, no `cute/beautiful/sexy` present, canvas re-packs with current settings.
-- Click "Best Framable Settings" on a sports student → palette goes black/navy/red, name centered ~10% canvas, no glyph crossing the outline, minimal white space.
-- Click "Download" → file is `*_5x10_300dpi.jpg`, 1500×3000 (portrait), opens in Preview at 5"×10" @ 300 DPI.
+No UI/structural changes; this is a sizing/math fix.
