@@ -23,7 +23,8 @@ function maskAt(mask: Uint8Array, maskSize: number, nx: number, ny: number): boo
   return mask[my * maskSize + mx] === 1;
 }
 
-// Strict containment: 4 corners + 8 perimeter midpoints + center. ALL must be inside.
+// Edge-hugging containment: 4 corners + center only. Fewer test points let
+// words approach within ~1-3px of silhouette edges (reference Etsy art).
 function boxInsideMask(
   mask: Uint8Array,
   maskSize: number,
@@ -41,13 +42,9 @@ function boxInsideMask(
   const y1 = y0 + h;
   const mx = x0 + w / 2;
   const my = y0 + h / 2;
-  // 4 corners (mandatory), center, and 8 perimeter midpoints/quarters.
   const pts: Array<[number, number]> = [
     [x0, y0], [x1, y0], [x0, y1], [x1, y1],
     [mx, my],
-    [mx, y0], [mx, y1], [x0, my], [x1, my],
-    [x0 + w * 0.25, y0], [x0 + w * 0.75, y0],
-    [x0 + w * 0.25, y1], [x0 + w * 0.75, y1],
   ];
   for (const [px, py] of pts) {
     if (!maskAt(mask, maskSize, px / width, py / height)) return false;
@@ -194,14 +191,93 @@ function computePlacements(
   const shapeH = bboxH;
   const shapeMin = Math.min(bboxW, bboxH);
 
-  // Tight edge buffer so words hug the silhouette outline (reference art).
-  const EDGE_PAD = Math.max(2, shapeMin * 0.002);
+  // Edge-hug pad — words can sit ~1-2px from silhouette outline.
+  const EDGE_PAD = Math.max(1, shapeMin * 0.001);
+
+  // --- Occupancy grid (distributed seeding + real coverage %) ---
+  const OG = 220;
+  const cellW = width / OG;
+  const cellH = height / OG;
+  const inMask = new Uint8Array(OG * OG);
+  let maskCellCount = 0;
+  for (let y = 0; y < OG; y++) {
+    for (let x = 0; x < OG; x++) {
+      const nx = (x + 0.5) / OG;
+      const ny = (y + 0.5) / OG;
+      const mxi = Math.min(maskSize - 1, Math.floor(nx * maskSize));
+      const myi = Math.min(maskSize - 1, Math.floor(ny * maskSize));
+      if (mask[myi * maskSize + mxi] === 1) {
+        inMask[y * OG + x] = 1;
+        maskCellCount++;
+      }
+    }
+  }
+  const occupied = new Uint8Array(OG * OG);
+  let occupiedCount = 0;
+
+  const isEmptyCell = (i: number) => inMask[i] === 1 && occupied[i] === 0;
+
+  function markBoxOcc(box: Box) {
+    const cx0 = Math.max(0, Math.floor(box.x / cellW));
+    const cy0 = Math.max(0, Math.floor(box.y / cellH));
+    const cx1 = Math.min(OG - 1, Math.floor((box.x + box.w) / cellW));
+    const cy1 = Math.min(OG - 1, Math.floor((box.y + box.h) / cellH));
+    for (let yy = cy0; yy <= cy1; yy++) {
+      for (let xx = cx0; xx <= cx1; xx++) {
+        const i = yy * OG + xx;
+        if (inMask[i] === 1 && occupied[i] === 0) {
+          occupied[i] = 1;
+          occupiedCount++;
+        }
+      }
+    }
+  }
+
+  // Pick a random empty in-mask cell as a placement seed.
+  function pickEmptySeed(): { x: number; y: number } | null {
+    for (let t = 0; t < 120; t++) {
+      const i = Math.floor(Math.random() * OG * OG);
+      if (isEmptyCell(i)) {
+        return {
+          x: ((i % OG) + 0.5) * cellW,
+          y: (Math.floor(i / OG) + 0.5) * cellH,
+        };
+      }
+    }
+    return null;
+  }
+
+  // Pick seed weighted toward the largest empty region (for big words).
+  function pickLargestEmptySeed(samples = 50): { x: number; y: number } | null {
+    let best: { x: number; y: number; score: number } | null = null;
+    const R = 6;
+    for (let t = 0; t < samples; t++) {
+      const i = Math.floor(Math.random() * OG * OG);
+      if (!isEmptyCell(i)) continue;
+      const cx = i % OG;
+      const cy = Math.floor(i / OG);
+      let score = 0;
+      for (let dy = -R; dy <= R; dy++) {
+        const yy = cy + dy;
+        if (yy < 0 || yy >= OG) continue;
+        for (let dx = -R; dx <= R; dx++) {
+          const xx = cx + dx;
+          if (xx < 0 || xx >= OG) continue;
+          if (isEmptyCell(yy * OG + xx)) score++;
+        }
+      }
+      if (!best || score > best.score) {
+        best = { x: (cx + 0.5) * cellW, y: (cy + 0.5) * cellH, score };
+      }
+    }
+    return best;
+  }
 
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
   const nameFont = opts.nameFontFamily ?? opts.fontFamily;
   // Finer collision grid → tighter packing between neighbors.
-  const grid = new Grid(Math.max(10, shapeMin / 70));
+  const grid = new Grid(Math.max(8, shapeMin / 80));
 
   const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40;
@@ -281,8 +357,8 @@ function computePlacements(
     tier: 2 | 3 | 4 | 5,
     fontFamily: string,
     fontWeight: number,
+    seed?: { x: number; y: number } | null,
   ): boolean {
-    // 80/20 horizontal-vs-vertical for tier 3+; tier 2 stays horizontal for legibility.
     const allowRotate = tier >= 3;
     const angle = allowRotate && Math.random() < 0.2 ? Math.PI / 2 : 0;
     const tw = measureWord(word, fontSize, fontFamily, fontWeight);
@@ -290,24 +366,25 @@ function computePlacements(
     const bw = angle ? th : tw;
     const bh = angle ? tw : th;
 
-    const startR = shapeMin * (1 - opts.centerBias / 100) * 0.1;
+    // Distributed seeding: each word starts at an empty-region seed (not
+    // canvas center), so torsos don't hog space while arms/legs stay empty.
+    const ox = seed?.x ?? cx;
+    const oy = seed?.y ?? cy;
+
+    const startR = Math.max(2, fontSize * 0.3);
     const maxR = Math.max(bboxW, bboxH);
-    // Smaller search step → denser sampling along the spiral.
     const step = Math.max(1, fontSize * 0.08 * (1 + randomness));
-    const maxAttempts = tier === 5 ? 1500 : tier === 4 ? 2500 : 3500;
+    const maxAttempts = tier === 5 ? 900 : tier === 4 ? 1800 : 3000;
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
 
-    // Tight inter-word padding — small absolute floor so micro-words can
-    // mortar into gaps between larger words.
     const pad = Math.max(0.5, Math.min(fontSize * 0.08, 1 + fontSize * 0.02 * adherence));
 
     for (let i = 0; i < maxAttempts; i++) {
-      const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r;
+      const x = ox + Math.cos(theta) * r;
+      const y = oy + Math.sin(theta) * r;
       const box: Box = { x: x - bw / 2, y: y - bh / 2, w: bw, h: bh };
 
-      // Canvas bounds with EDGE_PAD
       if (
         box.x < EDGE_PAD ||
         box.y < EDGE_PAD ||
@@ -329,6 +406,7 @@ function computePlacements(
         grid.add(box);
         placements.push({ x, y, word, fontSize, color, angle, fontFamily, fontWeight });
         trackPlacement(word, box, color);
+        markBoxOcc(box);
         placedTotal++;
         placedInsideMask++;
         return true;
@@ -340,6 +418,27 @@ function computePlacements(
       if (r > maxR) r = startR + Math.random() * 20;
     }
     return false;
+  }
+
+  // Try multiple seeds before giving up (gap-filling).
+  function placeWithSeeds(
+    word: string,
+    fontSize: number,
+    color: string,
+    tier: 2 | 3 | 4 | 5,
+    fontFamily: string,
+    fontWeight: number,
+    seedAttempts = 4,
+    preferLarge = false,
+  ): boolean {
+    for (let s = 0; s < seedAttempts; s++) {
+      const seed = preferLarge && s === 0
+        ? pickLargestEmptySeed()
+        : pickEmptySeed();
+      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed)) return true;
+    }
+    // Final fallback: center spiral.
+    return place(word, fontSize, color, tier, fontFamily, fontWeight, null);
   }
 
   // --- Tier 1: name, locked to center, registered FIRST ---
@@ -364,6 +463,7 @@ function computePlacements(
       h: nameSize + 8,
     };
     grid.add(nameBox);
+    markBoxOcc(nameBox);
     const nameColor = palette.dark;
     placements.push({
       word: nameText,
@@ -382,70 +482,74 @@ function computePlacements(
   completedUnits++;
   sendProgress();
 
-  // --- Tier 2: large, dark, horizontal-only ---
+  // --- Tier 2: large, dark, horizontal-only. Seed in largest empty region. ---
   for (const w of tier2) {
     const fs = shapeH * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
-    place(w.word, fs, color, 2, bodyFont, 700);
+    placeWithSeeds(w.word, fs, color, 2, bodyFont, 700, 5, true);
     completedUnits++;
     sendProgress();
   }
 
-  const densityMul = (opts.density / 100) * (etsy ? 0.82 : 1);
+  
 
-  // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
+  // --- Tier 3: medium ---
   for (const w of tier3) {
     const fs = shapeH * (etsy ? 0.015 : 0.017) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
-    place(w.word, fs, color, 3, bodyFont, 500);
+    placeWithSeeds(w.word, fs, color, 3, bodyFont, 500, 4, false);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Tier 4: small, mid color dominant — always try ---
+  // --- Tier 4: small ---
   for (const w of tier4) {
     const fs = shapeH * (etsy ? 0.0095 : 0.0105) + (Math.random() - 0.5) * 1.2;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
-    place(w.word, fs, color, 4, bodyFont, 400);
+    placeWithSeeds(w.word, fs, color, 4, bodyFont, 400, 3, false);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
+  // --- Tier 5: coverage-driven micro-fill mortar ---
+  // Keep placing micro words until area coverage reaches ~95% OR we plateau.
   if (pool.length > 0) {
-    const MIN_FONT_PT = Math.max(4, shapeMin * 0.004);
+    const MIN_FONT_PT = Math.max(3, shapeMin * 0.0028);
     const startFs = Math.max(MIN_FONT_PT, shapeH * (etsy ? 0.0085 : 0.0095));
-    const HARD_CAP = etsy ? 4000 : 8000;
-    const MAX_CONSEC_FAIL = 400; // stop only after deep saturation
-    const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
-    const perWordCap = 3;
+    const HARD_CAP = etsy ? 6000 : 12000;
+    const MAX_CONSEC_FAIL = 600;
+    const perWordCap = 4;
+    const COVERAGE_TARGET = 0.95;
     let consecFail = 0;
     let i = 0;
     while (i < HARD_CAP && consecFail < MAX_CONSEC_FAIL) {
+      const coverageNow = maskCellCount === 0 ? 1 : occupiedCount / maskCellCount;
+      if (coverageNow >= COVERAGE_TARGET) break;
+
       const w = pool[i % pool.length];
       const key = w.word.toLowerCase();
       if ((wordCounts.get(key) ?? 0) >= perWordCap) {
         i++;
         continue;
       }
+      // Adaptive shrink — get smaller as coverage climbs, so we squeeze into gaps.
+      const shrink = 1 - Math.min(0.6, coverageNow * 0.5);
+      const baseFs = Math.max(MIN_FONT_PT, startFs * shrink);
+      const sizes = [baseFs, baseFs * 0.8, baseFs * 0.6, MIN_FONT_PT];
       let placed = false;
-      // Wider size ladder — shrink aggressively into tiny gaps.
-      const sizes = [startFs, startFs * 0.85, startFs * 0.7, startFs * 0.55, MIN_FONT_PT];
       for (const fs of sizes) {
         if (fs < MIN_FONT_PT - 0.5) continue;
-        if (place(w.word, fs, palette.light, 5, bodyFont, 400)) {
+        // Always seed from an empty cell — true gap-filling.
+        if (placeWithSeeds(w.word, fs, palette.light, 5, bodyFont, 400, 3, false)) {
           placed = true;
           break;
         }
       }
-      if (placed) {
-        consecFail = 0;
-      } else {
-        consecFail++;
-      }
+      if (placed) consecFail = 0;
+      else consecFail++;
       i++;
-      if (i <= targetCap) {
-        completedUnits++;
+      if (i % 20 === 0) {
+        completedUnits = Math.min(totalUnits - 1, completedUnits + 1);
         sendProgress();
       }
     }
@@ -453,7 +557,8 @@ function computePlacements(
 
 
 
-  const coverage = placedTotal === 0 ? 0 : placedInsideMask / placedTotal;
+  // Real silhouette area coverage (filled mask cells / total mask cells).
+  const coverage = maskCellCount === 0 ? 0 : occupiedCount / maskCellCount;
   const uniqueCount = uniqueWordsSeen.size;
   const duplicateCount = Math.max(0, placedTotal - uniqueCount);
   const diversityScore = placedTotal === 0 ? 0 : (uniqueCount / placedTotal) * 100;
