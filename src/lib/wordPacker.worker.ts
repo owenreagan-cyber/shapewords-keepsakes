@@ -194,13 +194,14 @@ function computePlacements(
   const shapeH = bboxH;
   const shapeMin = Math.min(bboxW, bboxH);
 
-  // Generous edge buffer so glyphs never kiss the silhouette outline.
-  const EDGE_PAD = Math.max(4, shapeMin * 0.005);
+  // Tight edge buffer so words hug the silhouette outline (reference art).
+  const EDGE_PAD = Math.max(2, shapeMin * 0.002);
 
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
   const nameFont = opts.nameFontFamily ?? opts.fontFamily;
-  const grid = new Grid(Math.max(20, shapeMin / 40));
+  // Finer collision grid → tighter packing between neighbors.
+  const grid = new Grid(Math.max(10, shapeMin / 70));
 
   const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40;
@@ -291,15 +292,15 @@ function computePlacements(
 
     const startR = shapeMin * (1 - opts.centerBias / 100) * 0.1;
     const maxR = Math.max(bboxW, bboxH);
-    const step = Math.max(2, fontSize * 0.15 * (1 + randomness));
-    const maxAttempts = tier === 5 ? 400 : tier === 4 ? 1200 : 2000;
+    // Smaller search step → denser sampling along the spiral.
+    const step = Math.max(1, fontSize * 0.08 * (1 + randomness));
+    const maxAttempts = tier === 5 ? 1500 : tier === 4 ? 2500 : 3500;
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
 
-    // Pad is the inset applied to BOTH sides inside boxInsideMask. It must be
-    // small relative to the word's own font size, or tier 3/4/5 boxes shrink
-    // to a negative effective size and always fail the mask test.
-    const pad = Math.max(1, Math.min(fontSize * 0.18, 3 + fontSize * 0.05 * adherence));
+    // Tight inter-word padding — small absolute floor so micro-words can
+    // mortar into gaps between larger words.
+    const pad = Math.max(0.5, Math.min(fontSize * 0.08, 1 + fontSize * 0.02 * adherence));
 
     for (let i = 0; i < maxAttempts; i++) {
       const x = cx + Math.cos(theta) * r;
@@ -394,7 +395,7 @@ function computePlacements(
 
   // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
   for (const w of tier3) {
-    const fs = shapeH * (etsy ? 0.017 : 0.019) * scaleMul;
+    const fs = shapeH * (etsy ? 0.015 : 0.017) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
     place(w.word, fs, color, 3, bodyFont, 500);
     completedUnits++;
@@ -403,7 +404,7 @@ function computePlacements(
 
   // --- Tier 4: small, mid color dominant — always try ---
   for (const w of tier4) {
-    const fs = shapeH * (etsy ? 0.0105 : 0.0115) + (Math.random() - 0.5) * 1.5;
+    const fs = shapeH * (etsy ? 0.0095 : 0.0105) + (Math.random() - 0.5) * 1.2;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
     place(w.word, fs, color, 4, bodyFont, 400);
     completedUnits++;
@@ -412,12 +413,12 @@ function computePlacements(
 
   // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
   if (pool.length > 0) {
-    const MIN_FONT_PT = Math.max(6, shapeMin * 0.006);
-    const startFs = Math.max(MIN_FONT_PT, shapeH * (etsy ? 0.010 : 0.011));
-    const HARD_CAP = etsy ? 2000 : 5000;
-    const MAX_CONSEC_FAIL = 200; // stop only after deep saturation
+    const MIN_FONT_PT = Math.max(4, shapeMin * 0.004);
+    const startFs = Math.max(MIN_FONT_PT, shapeH * (etsy ? 0.0085 : 0.0095));
+    const HARD_CAP = etsy ? 4000 : 8000;
+    const MAX_CONSEC_FAIL = 400; // stop only after deep saturation
     const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
-    const perWordCap = 2;
+    const perWordCap = 3;
     let consecFail = 0;
     let i = 0;
     while (i < HARD_CAP && consecFail < MAX_CONSEC_FAIL) {
@@ -428,7 +429,8 @@ function computePlacements(
         continue;
       }
       let placed = false;
-      const sizes = [startFs, startFs * 0.85, startFs * 0.7, MIN_FONT_PT, MIN_FONT_PT];
+      // Wider size ladder — shrink aggressively into tiny gaps.
+      const sizes = [startFs, startFs * 0.85, startFs * 0.7, startFs * 0.55, MIN_FONT_PT];
       for (const fs of sizes) {
         if (fs < MIN_FONT_PT - 0.5) continue;
         if (place(w.word, fs, palette.light, 5, bodyFont, 400)) {
