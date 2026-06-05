@@ -86,6 +86,9 @@ const IMAGE_API_BASE =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
 
 export async function callShapeGen(shapeDescription: string, style: string): Promise<string> {
+  const deterministicShape = getDeterministicShapeSvg(shapeDescription);
+  if (deterministicShape) return deterministicShape;
+
   const prompt = `A bold, solid pure-black silhouette of: ${shapeDescription}.
 Style reference: ${style}.
 Strict requirements:
@@ -127,6 +130,144 @@ const FALLBACK_HUMAN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0
   <ellipse cx="760" cy="300" rx="190" ry="70" transform="rotate(22 760 300)" fill="#000"/>
   <ellipse cx="360" cy="690" rx="78" ry="215" transform="rotate(-25 360 690)" fill="#000"/>
   <ellipse cx="640" cy="690" rx="78" ry="215" transform="rotate(25 640 690)" fill="#000"/>
+</svg>`;
+
+const FALLBACK_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="545" cy="145" r="82" fill="#000"/>
+  <ellipse cx="545" cy="355" rx="128" ry="195" fill="#000"/>
+  <ellipse cx="300" cy="290" rx="180" ry="58" transform="rotate(-26 300 290)" fill="#000"/>
+  <ellipse cx="760" cy="292" rx="175" ry="56" transform="rotate(27 760 292)" fill="#000"/>
+  <ellipse cx="430" cy="648" rx="62" ry="220" transform="rotate(-34 430 648)" fill="#000"/>
+  <ellipse cx="690" cy="664" rx="64" ry="224" transform="rotate(28 690 664)" fill="#000"/>
+  <ellipse cx="758" cy="874" rx="92" ry="38" transform="rotate(14 758 874)" fill="#000"/>
+</svg>`;
+
+const FALLBACK_CHEERLEADER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="500" cy="150" r="86" fill="#000"/>
+  <ellipse cx="500" cy="375" rx="132" ry="208" fill="#000"/>
+  <ellipse cx="262" cy="326" rx="160" ry="64" transform="rotate(-12 262 326)" fill="#000"/>
+  <ellipse cx="738" cy="326" rx="160" ry="64" transform="rotate(12 738 326)" fill="#000"/>
+  <circle cx="145" cy="335" r="96" fill="#000"/>
+  <circle cx="855" cy="335" r="96" fill="#000"/>
+  <ellipse cx="410" cy="694" rx="72" ry="212" transform="rotate(-17 410 694)" fill="#000"/>
+  <ellipse cx="590" cy="694" rx="72" ry="212" transform="rotate(17 590 694)" fill="#000"/>
+  <ellipse cx="360" cy="900" rx="96" ry="42" fill="#000"/>
+  <ellipse cx="640" cy="900" rx="96" ry="42" fill="#000"/>
+</svg>`;
+
+const FALLBACK_MALE_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="470" cy="140" r="78" fill="#000"/>
+  <ellipse cx="470" cy="352" rx="145" ry="208" fill="#000"/>
+  <ellipse cx="255" cy="320" rx="188" ry="68" transform="rotate(-18 255 320)" fill="#000"/>
+  <ellipse cx="706" cy="252" rx="196" ry="66" transform="rotate(34 706 252)" fill="#000"/>
+  <ellipse cx="390" cy="708" rx="84" ry="230" transform="rotate(-20 390 708)" fill="#000"/>
+  <ellipse cx="642" cy="650" rx="82" ry="250" transform="rotate(30 642 650)" fill="#000"/>
+  <ellipse cx="742" cy="878" rx="112" ry="42" transform="rotate(12 742 878)" fill="#000"/>
+</svg>`;
+
+const FALLBACK_BALLET_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="512" cy="132" r="72" fill="#000"/>
+  <ellipse cx="512" cy="312" rx="104" ry="160" fill="#000"/>
+  <ellipse cx="520" cy="460" rx="225" ry="118" fill="#000"/>
+  <ellipse cx="320" cy="292" rx="168" ry="48" transform="rotate(-26 320 292)" fill="#000"/>
+  <ellipse cx="718" cy="292" rx="168" ry="48" transform="rotate(26 718 292)" fill="#000"/>
+  <ellipse cx="426" cy="726" rx="56" ry="236" transform="rotate(-14 426 726)" fill="#000"/>
+  <ellipse cx="598" cy="728" rx="56" ry="240" transform="rotate(12 598 728)" fill="#000"/>
+  <ellipse cx="394" cy="922" rx="82" ry="30" fill="#000"/>
+  <ellipse cx="624" cy="922" rx="82" ry="30" fill="#000"/>
+</svg>`;
+
+const FALLBACK_LEAPING_GIRL_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="560" cy="148" r="74" fill="#000"/>
+  <ellipse cx="560" cy="338" rx="112" ry="168" fill="#000"/>
+  <ellipse cx="352" cy="292" rx="166" ry="52" transform="rotate(-32 352 292)" fill="#000"/>
+  <ellipse cx="756" cy="260" rx="186" ry="56" transform="rotate(24 756 260)" fill="#000"/>
+  <ellipse cx="468" cy="684" rx="62" ry="236" transform="rotate(-30 468 684)" fill="#000"/>
+  <ellipse cx="710" cy="620" rx="58" ry="266" transform="rotate(44 710 620)" fill="#000"/>
+  <ellipse cx="866" cy="846" rx="76" ry="32" transform="rotate(32 866 846)" fill="#000"/>
+</svg>`;
+
+const FALLBACK_FEMALE_GYMNAST_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="455" cy="190" r="74" fill="#000"/>
+  <ellipse cx="500" cy="380" rx="192" ry="120" transform="rotate(-12 500 380)" fill="#000"/>
+  <ellipse cx="290" cy="450" rx="188" ry="62" transform="rotate(-42 290 450)" fill="#000"/>
+  <ellipse cx="725" cy="272" rx="176" ry="56" transform="rotate(24 725 272)" fill="#000"/>
+  <ellipse cx="442" cy="665" rx="58" ry="256" transform="rotate(-58 442 665)" fill="#000"/>
+  <ellipse cx="700" cy="690" rx="58" ry="232" transform="rotate(20 700 690)" fill="#000"/>
+  <ellipse cx="290" cy="860" rx="84" ry="34" transform="rotate(-24 290 860)" fill="#000"/>
+  <ellipse cx="782" cy="886" rx="86" ry="34" transform="rotate(10 782 886)" fill="#000"/>
+</svg>`;
+
+const FALLBACK_GIRL_SINGER_MICROPHONE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="470" cy="150" r="84" fill="#000"/>
+  <ellipse cx="470" cy="390" rx="142" ry="214" fill="#000"/>
+  <ellipse cx="282" cy="410" rx="144" ry="58" transform="rotate(-24 282 410)" fill="#000"/>
+  <ellipse cx="640" cy="338" rx="184" ry="54" transform="rotate(18 640 338)" fill="#000"/>
+  <ellipse cx="712" cy="284" rx="62" ry="46" fill="#000"/>
+  <rect x="742" y="225" width="54" height="190" rx="24" fill="#000"/>
+  <ellipse cx="802" cy="232" rx="58" ry="48" fill="#000"/>
+  <ellipse cx="390" cy="712" rx="76" ry="222" transform="rotate(-12 390 712)" fill="#000"/>
+  <ellipse cx="560" cy="714" rx="76" ry="222" transform="rotate(14 560 714)" fill="#000"/>
+  <ellipse cx="350" cy="920" rx="92" ry="36" fill="#000"/>
+  <ellipse cx="610" cy="920" rx="92" ry="36" fill="#000"/>
+</svg>`;
+
+const FALLBACK_BASEBALL_BATTER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="430" cy="164" r="80" fill="#000"/>
+  <ellipse cx="440" cy="378" rx="148" ry="214" fill="#000"/>
+  <ellipse cx="268" cy="356" rx="172" ry="62" transform="rotate(-20 268 356)" fill="#000"/>
+  <ellipse cx="620" cy="286" rx="198" ry="54" transform="rotate(-36 620 286)" fill="#000"/>
+  <rect x="680" y="70" width="74" height="380" rx="34" transform="rotate(-32 717 260)" fill="#000"/>
+  <ellipse cx="380" cy="714" rx="84" ry="232" transform="rotate(-14 380 714)" fill="#000"/>
+  <ellipse cx="562" cy="716" rx="86" ry="228" transform="rotate(18 562 716)" fill="#000"/>
+  <ellipse cx="340" cy="926" rx="96" ry="34" fill="#000"/>
+  <ellipse cx="624" cy="926" rx="96" ry="34" fill="#000"/>
+</svg>`;
+
+const FALLBACK_FOOTBALL_QB_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="510" cy="158" r="82" fill="#000"/>
+  <ellipse cx="510" cy="386" rx="162" ry="220" fill="#000"/>
+  <ellipse cx="338" cy="392" rx="148" ry="62" transform="rotate(-18 338 392)" fill="#000"/>
+  <ellipse cx="694" cy="336" rx="194" ry="58" transform="rotate(22 694 336)" fill="#000"/>
+  <ellipse cx="770" cy="314" rx="72" ry="48" transform="rotate(20 770 314)" fill="#000"/>
+  <ellipse cx="438" cy="714" rx="86" ry="226" transform="rotate(-8 438 714)" fill="#000"/>
+  <ellipse cx="622" cy="710" rx="86" ry="232" transform="rotate(20 622 710)" fill="#000"/>
+  <ellipse cx="412" cy="924" rx="98" ry="36" fill="#000"/>
+  <ellipse cx="672" cy="924" rx="98" ry="36" fill="#000"/>
+</svg>`;
+
+const FALLBACK_SOCCER_KICKER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="450" cy="150" r="78" fill="#000"/>
+  <ellipse cx="460" cy="368" rx="148" ry="206" fill="#000"/>
+  <ellipse cx="286" cy="342" rx="168" ry="58" transform="rotate(-22 286 342)" fill="#000"/>
+  <ellipse cx="664" cy="320" rx="170" ry="56" transform="rotate(16 664 320)" fill="#000"/>
+  <ellipse cx="392" cy="716" rx="84" ry="228" transform="rotate(-14 392 716)" fill="#000"/>
+  <ellipse cx="678" cy="666" rx="68" ry="264" transform="rotate(38 678 666)" fill="#000"/>
+  <ellipse cx="844" cy="882" rx="76" ry="34" transform="rotate(20 844 882)" fill="#000"/>
+  <circle cx="920" cy="846" r="66" fill="#000"/>
+</svg>`;
+
+const FALLBACK_SOCCER_GOALIE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="520" cy="164" r="80" fill="#000"/>
+  <ellipse cx="520" cy="392" rx="168" ry="214" fill="#000"/>
+  <ellipse cx="292" cy="308" rx="206" ry="62" transform="rotate(-28 292 308)" fill="#000"/>
+  <ellipse cx="748" cy="324" rx="206" ry="62" transform="rotate(28 748 324)" fill="#000"/>
+  <ellipse cx="430" cy="716" rx="84" ry="226" transform="rotate(-10 430 716)" fill="#000"/>
+  <ellipse cx="606" cy="710" rx="84" ry="232" transform="rotate(16 606 710)" fill="#000"/>
+  <circle cx="884" cy="220" r="68" fill="#000"/>
+  <ellipse cx="392" cy="926" rx="96" ry="34" fill="#000"/>
+  <ellipse cx="654" cy="926" rx="96" ry="34" fill="#000"/>
+</svg>`;
+
+const FALLBACK_ICE_HOCKEY_PLAYER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <circle cx="460" cy="170" r="78" fill="#000"/>
+  <ellipse cx="468" cy="396" rx="154" ry="216" fill="#000"/>
+  <ellipse cx="306" cy="420" rx="170" ry="58" transform="rotate(-24 306 420)" fill="#000"/>
+  <ellipse cx="640" cy="408" rx="168" ry="58" transform="rotate(24 640 408)" fill="#000"/>
+  <rect x="712" y="266" width="58" height="474" rx="26" transform="rotate(22 741 503)" fill="#000"/>
+  <ellipse cx="394" cy="726" rx="84" ry="224" transform="rotate(-12 394 726)" fill="#000"/>
+  <ellipse cx="582" cy="728" rx="84" ry="228" transform="rotate(16 582 728)" fill="#000"/>
+  <rect x="282" y="900" width="420" height="42" rx="18" fill="#000"/>
 </svg>`;
 
 const FALLBACK_BEAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
@@ -210,26 +351,98 @@ const FALLBACK_STAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
   <path fill="#000" d="M500 80 L610 360 L920 380 L680 560 L760 870 L500 700 L240 870 L320 560 L80 380 L390 360 Z"/>
 </svg>`;
 
-export function getFallbackShapeSvg(shapeDescription: string): string {
-  const normalized = shapeDescription.toLowerCase();
+const SHAPE_SVG_RULES: Array<{ pattern: RegExp; svg: string; deterministic: boolean }> = [
+  { pattern: /(teddy|red panda|bear)/, svg: FALLBACK_BEAR_SVG, deterministic: true },
+  {
+    pattern: /(graceful.*dancer.*leaping|girl leaping in dance|leaping in dance)/,
+    svg: FALLBACK_LEAPING_GIRL_DANCER_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(cheerleader|pom-?pom|pom pom|cheer)/,
+    svg: FALLBACK_CHEERLEADER_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(boy dancing|male dancer|cool .*boy .*dancing)/,
+    svg: FALLBACK_MALE_DANCER_SVG,
+    deterministic: true,
+  },
+  { pattern: /(ballet)/, svg: FALLBACK_BALLET_DANCER_SVG, deterministic: true },
+  {
+    pattern: /(gymnastics|gymnast|tumbling)/,
+    svg: FALLBACK_FEMALE_GYMNAST_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(singing.*microphone|microphone|singer)/,
+    svg: FALLBACK_GIRL_SINGER_MICROPHONE_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(baseball.*bat|swinging.*baseball|baseball batter)/,
+    svg: FALLBACK_BASEBALL_BATTER_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(throwing.*football|quarterback|football throw)/,
+    svg: FALLBACK_FOOTBALL_QB_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(kicking.*soccer|soccer.*kicking|soccer kick)/,
+    svg: FALLBACK_SOCCER_KICKER_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(goalie|saving.*soccer|goalie net|goal keeper)/,
+    svg: FALLBACK_SOCCER_GOALIE_SVG,
+    deterministic: true,
+  },
+  {
+    pattern: /(ice hockey|hockey player|playing ice hockey|hockey)/,
+    svg: FALLBACK_ICE_HOCKEY_PLAYER_SVG,
+    deterministic: true,
+  },
+  { pattern: /(eagle|bird|wing|flying)/, svg: FALLBACK_BIRD_SVG, deterministic: true },
+  {
+    pattern: /(dog|horse|gallop|cat|fox|wolf|panda)/,
+    svg: FALLBACK_ANIMAL_SVG,
+    deterministic: true,
+  },
+  { pattern: /(snake|serpent)/, svg: FALLBACK_SNAKE_SVG, deterministic: true },
+  {
+    pattern: /(game controller|controller|gamepad|video game)/,
+    svg: FALLBACK_CONTROLLER_SVG,
+    deterministic: true,
+  },
+  { pattern: /(lightning|bolt)/, svg: FALLBACK_LIGHTNING_SVG, deterministic: true },
+  { pattern: /(robot|gear|engineering)/, svg: FALLBACK_GEAR_SVG, deterministic: true },
+  { pattern: /(laptop|computer)/, svg: FALLBACK_LAPTOP_SVG, deterministic: true },
+  { pattern: /(helmet)/, svg: FALLBACK_HELMET_SVG, deterministic: true },
+  { pattern: /(ribbon|medal|award)/, svg: FALLBACK_RIBBON_SVG, deterministic: true },
+  { pattern: /(pixel|blocky|character)/, svg: FALLBACK_PIXEL_CHARACTER_SVG, deterministic: true },
+  {
+    pattern:
+      /(boy|girl|dancer|dance|gymnast|cheer|sing|microphone|baseball|football|soccer|goalie|hockey|jump|kick|throw|tumbling|leaping)/,
+    svg: FALLBACK_HUMAN_SVG,
+    deterministic: false,
+  },
+];
 
-  if (/(teddy|red panda|bear)/.test(normalized)) return FALLBACK_BEAR_SVG;
-  if (/(eagle|bird|wing|flying)/.test(normalized)) return FALLBACK_BIRD_SVG;
-  if (/(dog|horse|gallop|cat|fox|wolf|panda)/.test(normalized)) return FALLBACK_ANIMAL_SVG;
-  if (/(snake|serpent)/.test(normalized)) return FALLBACK_SNAKE_SVG;
-  if (/(controller|gamepad|video game)/.test(normalized)) return FALLBACK_CONTROLLER_SVG;
-  if (/(lightning|bolt)/.test(normalized)) return FALLBACK_LIGHTNING_SVG;
-  if (/(robot|gear|engineering)/.test(normalized)) return FALLBACK_GEAR_SVG;
-  if (/(laptop|computer)/.test(normalized)) return FALLBACK_LAPTOP_SVG;
-  if (/(helmet)/.test(normalized)) return FALLBACK_HELMET_SVG;
-  if (/(ribbon|medal|award)/.test(normalized)) return FALLBACK_RIBBON_SVG;
-  if (/(pixel|blocky|character)/.test(normalized)) return FALLBACK_PIXEL_CHARACTER_SVG;
-  if (
-    /(boy|girl|dancer|dance|ballet|gymnast|cheer|sing|microphone|baseball|football|soccer|goalie|hockey|jump|kick|throw|tumbling|leaping)/.test(
-      normalized,
-    )
-  ) {
-    return FALLBACK_HUMAN_SVG;
+function getShapeSvgFromRules(shapeDescription: string, deterministicOnly: boolean): string | null {
+  const normalized = shapeDescription.toLowerCase();
+  for (const rule of SHAPE_SVG_RULES) {
+    if (deterministicOnly && !rule.deterministic) continue;
+    if (rule.pattern.test(normalized)) return rule.svg;
   }
-  return FALLBACK_STAR_SVG;
+  return null;
+}
+
+function getDeterministicShapeSvg(shapeDescription: string): string | null {
+  return getShapeSvgFromRules(shapeDescription, true);
+}
+
+export function getFallbackShapeSvg(shapeDescription: string): string {
+  return getShapeSvgFromRules(shapeDescription, false) ?? FALLBACK_STAR_SVG;
 }
