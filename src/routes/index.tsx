@@ -1359,9 +1359,14 @@ function drawShapeOutline(
   height: number,
   mask?: Uint8Array,
   maskSize?: number,
+  mode: "thin" | "decorative" = "thin",
 ) {
   const source = svg.trim();
   const isSvgMarkup = source.startsWith("<svg") || source.startsWith("<?xml");
+  const minDim = Math.min(width, height);
+  const lineWidth =
+    mode === "decorative" ? Math.max(14, minDim * 0.006) : Math.max(2, minDim * 0.0015);
+  const strokeStyle = mode === "decorative" ? "#1a1a1a" : "rgba(20,20,20,0.55)";
 
   // SVG path silhouette → stroke the actual vector paths.
   if (isSvgMarkup) {
@@ -1374,8 +1379,8 @@ function drawShapeOutline(
       ctx.save();
       ctx.scale(width / vbW, height / vbH);
       ctx.translate(-vbX, -vbY);
-      ctx.strokeStyle = "#0A0A0A";
-      ctx.lineWidth = Math.max(10, Math.min(vbW, vbH) * 0.01);
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth * (vbW / width);
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       for (const m of pathMatches) ctx.stroke(new Path2D(m[1]));
@@ -1386,7 +1391,7 @@ function drawShapeOutline(
 
   // Raster silhouette (e.g. Gemini-generated PNG) → derive outline from the mask.
   if (!mask || !maskSize) return;
-  drawMaskOutline(ctx, mask, maskSize, width, height);
+  drawMaskOutline(ctx, mask, maskSize, width, height, mode);
 }
 
 function drawMaskOutline(
