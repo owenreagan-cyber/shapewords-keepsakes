@@ -201,7 +201,14 @@ function computePlacements(
   const tier4 = rest
     .filter((w) => w.importanceScore >= 10 && w.importanceScore < 40)
     .slice(0, etsy ? 140 : 200);
-  const pool = rest.filter((w) => w.importanceScore < 50);
+  // Tier 5 = mortar; dedupe against everything already scheduled so words don't repeat.
+  const usedKeys = new Set<string>([
+    opts.name.toLowerCase(),
+    ...tier2.map((w) => w.word.toLowerCase()),
+    ...tier3.map((w) => w.word.toLowerCase()),
+    ...tier4.map((w) => w.word.toLowerCase()),
+  ]);
+  const pool = rest.filter((w) => !usedKeys.has(w.word.toLowerCase()));
   const tier5Cap = pool.length > 0 ? (etsy ? 240 : 500) : 0;
 
   const totalUnits = Math.max(1, 1 + tier2.length + tier3.length + tier4.length + tier5Cap);
