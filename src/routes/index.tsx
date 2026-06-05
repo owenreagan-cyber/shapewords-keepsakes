@@ -10,7 +10,8 @@ import {
   OPTIMIZATION_PRESETS,
   type Student,
 } from "@/lib/students";
-import { callShapeGen, callWordExpansion, getFallbackShapeSvg, type WordEntry } from "@/lib/gemini";
+import { callShapeGen, callWordExpansion, getFallbackShapeSvg, sanitizeWords, type WordEntry } from "@/lib/gemini";
+import { pickBestPreset } from "@/lib/themePalettes";
 import {
   buildMaskFromSvg,
   detectMaskOrientation,
@@ -45,13 +46,18 @@ export const Route = createFileRoute("/")({
 const EXPORT_RES = {
   preview: { w: 1200, h: 1500, label: "1200px (Preview)" },
   print: { w: 3000, h: 3750, label: "3000x3750px (8x10 @ 300 DPI)" },
-  tall: { w: 3000, h: 6000, label: "3000x6000px (5x10 @ 300 DPI)" },
+  tall: { w: 1500, h: 3000, label: "1500x3000px (5x10 @ 300 DPI)" },
   ultra: { w: 6000, h: 12000, label: "6000x12000px (Ultra)" },
 };
 
 const ORIENTATION_OUTPUT_RES: Record<MaskOrientation, { w: number; h: number }> = {
   portrait: { w: 2400, h: 3000 },
   landscape: { w: 3000, h: 2400 },
+};
+
+const ORIENTATION_OUTPUT_5X10: Record<MaskOrientation, { w: number; h: number }> = {
+  portrait: { w: 1500, h: 3000 },
+  landscape: { w: 3000, h: 1500 },
 };
 
 type Config = {
@@ -93,6 +99,7 @@ type RenderJob = {
   maskSize?: number;
   onProgress?: (progress: number) => void;
   syncState?: boolean;
+  paletteOverride?: string[];
 };
 
 function defaultConfig(s: Student): Config {
@@ -278,6 +285,7 @@ function ShapeWordsApp() {
       maskSize = 512,
       onProgress,
       syncState = false,
+      paletteOverride,
     }: RenderJob) => {
       canvas.width = size.w;
       canvas.height = size.h;
@@ -288,7 +296,8 @@ function ShapeWordsApp() {
         ? { mask, size: maskSize }
         : { mask: await buildMaskFromSvg(svg, maskSize), size: maskSize };
       const wordSet = normalizeWordEntries(student.name, rawWords, student.traits);
-      const accent = student.colorPalette[1] ?? "#D97706";
+      const palette = paletteOverride && paletteOverride.length > 0 ? paletteOverride : student.colorPalette;
+      const accent = palette[1] ?? "#D97706";
       const typography = pickTypographyPair(renderConfig.fontFamily, renderConfig.etsyMode);
 
       if (syncState) setPackingProgress(0);
@@ -307,9 +316,9 @@ function ShapeWordsApp() {
             bodyFontFamily: typography.bodyFont,
             nameFontFamily: typography.nameFont,
             accentColor: accent,
-            primaryColor: student.colorPalette[0] ?? "#000000",
+            primaryColor: palette[0] ?? "#000000",
             bgColor: "#FFFFFF",
-            palette: student.colorPalette,
+            palette,
             density: renderConfig.density,
             scaling: renderConfig.scaling,
             adherence: renderConfig.adherence,
@@ -340,6 +349,7 @@ function ShapeWordsApp() {
       sizeOverride?: { w: number; h: number },
       wordsOverride?: WordEntry[],
       shapeOverride?: string,
+      paletteOverride?: string[],
     ) => {
       const canvas = targetCanvas ?? canvasRef.current;
       if (!canvas) return null;
@@ -363,6 +373,7 @@ function ShapeWordsApp() {
         mask: activeMask.mask,
         maskSize: activeMask.size,
         syncState: true,
+        paletteOverride,
       });
     },
     [
@@ -385,81 +396,107 @@ function ShapeWordsApp() {
     return () => clearTimeout(t);
   }, [renderToCanvas]);
 
-  const handleGenerate = async () => {
+  // Step 1: AI-generate school-appropriate words (no layout changes).
+  const handleGenerateWords = async () => {
     setBusy(true);
-    setStatus("Calling Gemini...");
+    setStatus("Generating school-safe words…");
     try {
       const accent = active.colorPalette[1] ?? "#D97706";
-      const [expansion, svg] = await Promise.all([
-        callWordExpansion({
-          name: nameField,
-          traits: traitsField,
-          theme: config.theme,
-          aiExpansionProfile: active.aiExpansionProfile,
-          preset: config.preset,
-          fontFamily: config.fontFamily,
-          accentColor: accent,
-        }).catch((e) => {
-          console.warn("Word expansion failed:", e);
-          return null;
-        }),
-        callShapeGen(shapeField, config.silhouetteStyle).catch((e) => {
-          console.warn("Shape gen failed, fallback:", e);
-          return getFallbackShapeSvg(shapeField);
-        }),
-      ]);
-      setStatus("Building mask...");
-      setShapeSvg(svg);
-      maskRef.current = { mask: await buildMaskFromSvg(svg, 512), size: 512 };
-      const generatedWords = expansion?.words?.length
-        ? normalizeWordEntries(nameField, expansion.words, traitsField)
-        : normalizeWordEntries(nameField, seedFromTraits(active.name, traitsField), traitsField);
+      const expansion = await callWordExpansion({
+        name: nameField,
+        traits: traitsField,
+        theme: config.theme,
+        aiExpansionProfile: active.aiExpansionProfile,
+        preset: config.preset,
+        fontFamily: config.fontFamily,
+        accentColor: accent,
+      }).catch((e) => {
+        console.warn("Word expansion failed:", e);
+        return null;
+      });
+      const rawWords = expansion?.words?.length
+        ? expansion.words
+        : seedFromTraits(active.name, traitsField);
+      const safe = sanitizeWords(rawWords, nameField);
+      const generatedWords = normalizeWordEntries(nameField, safe, traitsField);
       setWords(generatedWords);
-      // "Generate Best Possible" forces the dense, balanced look regardless of slider state.
-      const bestOverrides = {
+      setStatus("Packing words…");
+      await new Promise((r) => setTimeout(r, 50));
+      await renderToCanvas(undefined, undefined, generatedWords);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      setStatus("Error: " + message);
+      await new Promise((r) => setTimeout(r, 1500));
+    } finally {
+      setPackingProgress(null);
+      setStatus(null);
+      setBusy(false);
+    }
+  };
+
+  // Step 2: lock in the best framable settings (font, 3-color palette matched
+  // to theme/shape, dense + legible layout). No Gemini call.
+  const handleBestSettings = async () => {
+    setBusy(true);
+    setStatus("Applying best framable settings…");
+    try {
+      const preset = pickBestPreset({
+        theme: active.theme,
+        shape: shapeField,
+        traits: traitsField,
+        fallbackPalette: active.colorPalette,
+        fallbackFont: config.fontFamily,
+      });
+      const nextConfig: Config = {
+        ...config,
         etsyMode: true,
         emphasis: 4,
+        density: 100,
+        scaling: 22,
         adherence: 95,
         centerBias: 85,
-        density: 100,
-      } as const;
-      if (expansion?.words?.length && expansion.design) {
-        setConfig((c) => ({
-          ...c,
-          fontFamily: expansion.design.fontFamily || c.fontFamily,
-          scaling: clamp(expansion.design.scaling ?? c.scaling, 10, 50),
-          rotation: clamp(expansion.design.rotation ?? c.rotation, 0, 100),
-          randomness: clamp(expansion.design.randomness ?? c.randomness, 0, 100),
-          ...bestOverrides,
-        }));
-      } else {
-        setConfig((c) => ({ ...c, ...bestOverrides }));
-      }
-      setStatus("Packing words...");
-      await new Promise((r) => setTimeout(r, 50));
-      let best = await renderToCanvas(undefined, undefined, generatedWords, svg);
-      const maxAttempts = 4;
-      let attempt = 1;
-      while (attempt < maxAttempts) {
-        const current = best ? scoreLayout(best, generatedWords, config) : null;
-        if (current && current.overall >= 90) break;
-        attempt++;
-        setStatus(`Refining layout (${attempt}/${maxAttempts})...`);
-        const next = await renderToCanvas(undefined, undefined, generatedWords, svg);
+        rotation: 15,
+        randomness: 10,
+        fontFamily: preset.fontFamily,
+      };
+      setConfig(nextConfig);
+      const wordsForRender =
+        words.length > 0 ? words : normalizeWordEntries(nameField, seedFromTraits(nameField, traitsField), traitsField);
+      await new Promise((r) => setTimeout(r, 30));
+      // Render up to 3 attempts; keep the highest balance + coverage score.
+      let best: PackResult | null = null;
+      const maxAttempts = 3;
+      for (let i = 0; i < maxAttempts; i++) {
+        if (i > 0) setStatus(`Refining layout (${i + 1}/${maxAttempts})…`);
+        const canvas = canvasRef.current;
+        if (!canvas) break;
+        const ctx = canvas.getContext("2d");
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const next = await renderWordArt({
+          canvas,
+          student: currentStudent,
+          config: nextConfig,
+          size: getCanvasSizeForResolution(nextConfig.resolution, maskOrientation),
+          svg: shapeSvg,
+          words: wordsForRender,
+          mask: maskRef.current?.mask,
+          maskSize: maskRef.current?.size,
+          syncState: true,
+          paletteOverride: preset.palette,
+        });
         if (
           !best ||
-          (next &&
-            next.balanceScore + next.coverage * 100 > best.balanceScore + best.coverage * 100)
+          (next && next.balanceScore + next.coverage * 100 > best.balanceScore + best.coverage * 100)
         ) {
           best = next;
         }
       }
-      setStatus("Quality check complete");
+      setStatus("Best settings applied");
       await new Promise((r) => setTimeout(r, 250));
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       setStatus("Error: " + message);
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 1500));
     } finally {
       setPackingProgress(null);
       setStatus(null);
@@ -482,10 +519,11 @@ function ShapeWordsApp() {
   const handleDownload = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    await renderToCanvas(canvas, getCanvasSizeForResolution("print", maskOrientation));
+    await renderToCanvas(canvas, ORIENTATION_OUTPUT_5X10[maskOrientation]);
     const data = canvas.toDataURL("image/jpeg", 0.95);
-    triggerDownload(data, `${nameField}_WordArt_8x10_300dpi.jpg`);
+    triggerDownload(data, `${nameField}_WordArt_5x10_300dpi.jpg`);
   };
+
 
   const handleBatchExport = async () => {
     setBusy(true);
@@ -630,15 +668,26 @@ function ShapeWordsApp() {
                 />
               </label>
               <button
-                onClick={handleGenerate}
+                onClick={handleGenerateWords}
                 disabled={busy}
-                className="w-full mt-2 py-2.5 text-xs font-bold tracking-widest uppercase text-amber-foreground disabled:opacity-40"
+                className="w-full mt-2 py-2.5 text-xs font-bold tracking-widest uppercase disabled:opacity-40"
                 style={{
                   background: "linear-gradient(135deg, #D97706, #B45309)",
                   color: "#0A0A0A",
                 }}
               >
-                {busy ? "Working..." : "✨ Generate Best Possible Design"}
+                {busy ? "Working..." : "✨ Generate Words"}
+              </button>
+              <button
+                onClick={handleBestSettings}
+                disabled={busy}
+                className="w-full mt-2 py-2.5 text-xs font-bold tracking-widest uppercase disabled:opacity-40"
+                style={{
+                  background: "#0A0A0A",
+                  color: "#F5F5F5",
+                }}
+              >
+                {busy ? "Working..." : "🎯 Best Framable Settings"}
               </button>
             </Section>
           </div>
