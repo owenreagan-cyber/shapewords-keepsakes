@@ -195,7 +195,7 @@ function computePlacements(
   const shapeMin = Math.min(bboxW, bboxH);
 
   // Generous edge buffer so glyphs never kiss the silhouette outline.
-  const EDGE_PAD = Math.max(6, shapeMin * 0.014);
+  const EDGE_PAD = Math.max(4, shapeMin * 0.005);
 
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
