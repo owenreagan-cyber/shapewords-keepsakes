@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import pkg from "file-saver";
-const { saveAs } = pkg;
+import saveAs from "file-saver";
 import JSZip from "jszip";
 import {
   STUDENTS,
