@@ -45,13 +45,18 @@ export const Route = createFileRoute("/")({
 const EXPORT_RES = {
   preview: { w: 1200, h: 1500, label: "1200px (Preview)" },
   print: { w: 3000, h: 3750, label: "3000x3750px (8x10 @ 300 DPI)" },
-  tall: { w: 3000, h: 6000, label: "3000x6000px (5x10 @ 300 DPI)" },
+  tall: { w: 1500, h: 3000, label: "1500x3000px (5x10 @ 300 DPI)" },
   ultra: { w: 6000, h: 12000, label: "6000x12000px (Ultra)" },
 };
 
 const ORIENTATION_OUTPUT_RES: Record<MaskOrientation, { w: number; h: number }> = {
   portrait: { w: 2400, h: 3000 },
   landscape: { w: 3000, h: 2400 },
+};
+
+const ORIENTATION_OUTPUT_5X10: Record<MaskOrientation, { w: number; h: number }> = {
+  portrait: { w: 1500, h: 3000 },
+  landscape: { w: 3000, h: 1500 },
 };
 
 type Config = {
