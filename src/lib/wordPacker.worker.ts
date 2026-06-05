@@ -170,15 +170,37 @@ function computePlacements(
   opts: PackOptions,
 ): PackComputationResult {
   const { width, height } = opts;
-  const minDim = Math.min(width, height);
-  // Generous edge buffer so glyphs never kiss the silhouette outline.
-  const EDGE_PAD = Math.max(6, minDim * 0.014);
 
+  // --- Mask bounding box (in canvas pixel space) ---
+  // Font sizes & search seeding scale to the SILHOUETTE, not the canvas, so a
+  // small mask inside a large canvas still gets correctly-sized words.
+  let mnX = maskSize, mnY = maskSize, mxX = -1, mxY = -1;
+  for (let y = 0; y < maskSize; y++) {
+    const row = y * maskSize;
+    for (let x = 0; x < maskSize; x++) {
+      if (mask[row + x] === 1) {
+        if (x < mnX) mnX = x;
+        if (x > mxX) mxX = x;
+        if (y < mnY) mnY = y;
+        if (y > mxY) mxY = y;
+      }
+    }
+  }
+  if (mxX < 0) { mnX = 0; mnY = 0; mxX = maskSize - 1; mxY = maskSize - 1; }
+  const bboxX = (mnX / maskSize) * width;
+  const bboxY = (mnY / maskSize) * height;
+  const bboxW = ((mxX - mnX + 1) / maskSize) * width;
+  const bboxH = ((mxY - mnY + 1) / maskSize) * height;
+  const shapeH = bboxH;
+  const shapeMin = Math.min(bboxW, bboxH);
+
+  // Generous edge buffer so glyphs never kiss the silhouette outline.
+  const EDGE_PAD = Math.max(4, shapeMin * 0.005);
 
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
   const nameFont = opts.nameFontFamily ?? opts.fontFamily;
-  const grid = new Grid(Math.max(20, minDim / 40));
+  const grid = new Grid(Math.max(20, shapeMin / 40));
 
   const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40;
@@ -186,8 +208,9 @@ function computePlacements(
   const randomness = (opts.randomness / 100) * (etsy ? 0.6 : 1);
   const adherence = opts.adherence / 100;
 
-  const cx = width / 2;
-  const cy = height / 2;
+  // Center placements on the silhouette centroid, not the canvas.
+  const cx = bboxX + bboxW / 2;
+  const cy = bboxY + bboxH / 2;
 
   const sorted = [...opts.words].sort((a, b) => b.importanceScore - a.importanceScore);
   const nameEntry = sorted.find((w) => w.word.toLowerCase() === opts.name.toLowerCase());
@@ -266,15 +289,17 @@ function computePlacements(
     const bw = angle ? th : tw;
     const bh = angle ? tw : th;
 
-    const startR = minDim * (1 - opts.centerBias / 100) * 0.1;
-    const maxR = Math.max(width, height);
+    const startR = shapeMin * (1 - opts.centerBias / 100) * 0.1;
+    const maxR = Math.max(bboxW, bboxH);
     const step = Math.max(2, fontSize * 0.15 * (1 + randomness));
     const maxAttempts = tier === 5 ? 400 : tier === 4 ? 1200 : 2000;
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
 
-    // adherence-driven inset on top of EDGE_PAD
-    const pad = Math.max(EDGE_PAD, EDGE_PAD + minDim * 0.004 * adherence);
+    // Pad is the inset applied to BOTH sides inside boxInsideMask. It must be
+    // small relative to the word's own font size, or tier 3/4/5 boxes shrink
+    // to a negative effective size and always fail the mask test.
+    const pad = Math.max(1, Math.min(fontSize * 0.18, 3 + fontSize * 0.05 * adherence));
 
     for (let i = 0; i < maxAttempts; i++) {
       const x = cx + Math.cos(theta) * r;
@@ -318,17 +343,17 @@ function computePlacements(
 
   // --- Tier 1: name, locked to center, registered FIRST ---
   const nameText = (opts.name || "").trim();
-  // Reference-art sizing: ~10% of canvas height, with small emphasis nudge.
+  // Reference-art sizing: ~10% of SILHOUETTE height, with small emphasis nudge.
   const targetNameSize =
-    height *
+    shapeH *
     ((etsy ? 0.085 : 0.10) + 0.01 * Math.min(1, Math.max(-1, emphasisMul - 1))) *
     scaleMul;
-  const maxNameWidth = width * 0.55;
+  const maxNameWidth = bboxW * 0.55;
   let nameSize = targetNameSize;
   if (nameText) {
     let measured = measureWord(nameText, nameSize, nameFont, 800);
     if (measured > maxNameWidth) nameSize = nameSize * (maxNameWidth / measured);
-    const minNameSize = Math.max(24, height * 0.05);
+    const minNameSize = Math.max(18, shapeH * 0.05);
     if (nameSize < minNameSize) nameSize = minNameSize;
     measured = measureWord(nameText, nameSize, nameFont, 800);
     const nameBox: Box = {
@@ -358,7 +383,7 @@ function computePlacements(
 
   // --- Tier 2: large, dark, horizontal-only ---
   for (const w of tier2) {
-    const fs = height * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
+    const fs = shapeH * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
     place(w.word, fs, color, 2, bodyFont, 700);
     completedUnits++;
@@ -369,7 +394,7 @@ function computePlacements(
 
   // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
   for (const w of tier3) {
-    const fs = height * (etsy ? 0.017 : 0.019) * scaleMul;
+    const fs = shapeH * (etsy ? 0.017 : 0.019) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
     place(w.word, fs, color, 3, bodyFont, 500);
     completedUnits++;
@@ -378,7 +403,7 @@ function computePlacements(
 
   // --- Tier 4: small, mid color dominant — always try ---
   for (const w of tier4) {
-    const fs = height * (etsy ? 0.0105 : 0.0115) + (Math.random() - 0.5) * 1.5;
+    const fs = shapeH * (etsy ? 0.0105 : 0.0115) + (Math.random() - 0.5) * 1.5;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
     place(w.word, fs, color, 4, bodyFont, 400);
     completedUnits++;
@@ -387,8 +412,8 @@ function computePlacements(
 
   // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
   if (pool.length > 0) {
-    const MIN_FONT_PT = 6;
-    const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.010 : 0.011));
+    const MIN_FONT_PT = Math.max(6, shapeMin * 0.006);
+    const startFs = Math.max(MIN_FONT_PT, shapeH * (etsy ? 0.010 : 0.011));
     const HARD_CAP = etsy ? 2000 : 5000;
     const MAX_CONSEC_FAIL = 200; // stop only after deep saturation
     const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
