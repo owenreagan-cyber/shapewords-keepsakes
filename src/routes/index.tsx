@@ -71,6 +71,7 @@ type Config = {
   randomness: number; // 0-100
   centerBias: number; // 0-100
   silhouetteStyle: string;
+  outlineMode: "invisible" | "thin" | "decorative";
   preset: string;
   resolution: keyof typeof EXPORT_RES;
   etsyMode: boolean;
@@ -115,6 +116,7 @@ function defaultConfig(s: Student): Config {
     randomness: 15,
     centerBias: 85,
     silhouetteStyle: "Premium Print",
+    outlineMode: "invisible",
     preset: "Premium Print",
     resolution: "print",
     etsyMode: true,
@@ -332,7 +334,17 @@ function ShapeWordsApp() {
           },
           onProgress ?? (syncState ? setPackingProgress : undefined),
         );
-        // Invisible Shape Mode: SVG is used only as a placement mask — no outline drawn.
+        if (renderConfig.outlineMode !== "invisible") {
+          drawShapeOutline(
+            ctx,
+            svg,
+            size.w,
+            size.h,
+            effectiveMask.mask,
+            effectiveMask.size,
+            renderConfig.outlineMode,
+          );
+        }
         if (syncState) {
           setPlacedCount(result.placedCount);
           setQuality(scoreLayout(result, wordSet, renderConfig));
@@ -633,6 +645,22 @@ function ShapeWordsApp() {
                 value={config.silhouetteStyle}
                 onChange={(v) => setConfig((c) => ({ ...c, silhouetteStyle: v }))}
                 options={SILHOUETTE_STYLES}
+              />
+            </Field>
+            <Field label="Outline Mode">
+              <Select
+                value={config.outlineMode}
+                onChange={(v) =>
+                  setConfig((c) => ({
+                    ...c,
+                    outlineMode: v as Config["outlineMode"],
+                  }))
+                }
+                options={[
+                  "invisible",
+                  "thin",
+                  "decorative",
+                ]}
               />
             </Field>
           </Section>
@@ -1347,9 +1375,14 @@ function drawShapeOutline(
   height: number,
   mask?: Uint8Array,
   maskSize?: number,
+  mode: "thin" | "decorative" = "thin",
 ) {
   const source = svg.trim();
   const isSvgMarkup = source.startsWith("<svg") || source.startsWith("<?xml");
+  const minDim = Math.min(width, height);
+  const lineWidth =
+    mode === "decorative" ? Math.max(14, minDim * 0.006) : Math.max(2, minDim * 0.0015);
+  const strokeStyle = mode === "decorative" ? "#1a1a1a" : "rgba(20,20,20,0.55)";
 
   // SVG path silhouette → stroke the actual vector paths.
   if (isSvgMarkup) {
@@ -1362,8 +1395,8 @@ function drawShapeOutline(
       ctx.save();
       ctx.scale(width / vbW, height / vbH);
       ctx.translate(-vbX, -vbY);
-      ctx.strokeStyle = "#0A0A0A";
-      ctx.lineWidth = Math.max(10, Math.min(vbW, vbH) * 0.01);
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth * (vbW / width);
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       for (const m of pathMatches) ctx.stroke(new Path2D(m[1]));
@@ -1374,7 +1407,7 @@ function drawShapeOutline(
 
   // Raster silhouette (e.g. Gemini-generated PNG) → derive outline from the mask.
   if (!mask || !maskSize) return;
-  drawMaskOutline(ctx, mask, maskSize, width, height);
+  drawMaskOutline(ctx, mask, maskSize, width, height, mode);
 }
 
 function drawMaskOutline(
@@ -1383,6 +1416,7 @@ function drawMaskOutline(
   maskSize: number,
   width: number,
   height: number,
+  mode: "thin" | "decorative" = "thin",
 ) {
   // Edge-detect: a pixel is an edge if it's inside (mask=1) and has any 4-neighbor outside.
   const edge = new Uint8ClampedArray(maskSize * maskSize * 4);
@@ -1410,8 +1444,11 @@ function drawMaskOutline(
 
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  // Thicken by drawing the edge layer multiple times with 1px offsets.
-  const thickness = Math.max(3, Math.round(Math.min(width, height) / 250));
+  ctx.globalAlpha = mode === "decorative" ? 1 : 0.5;
+  const thickness =
+    mode === "decorative"
+      ? Math.max(4, Math.round(Math.min(width, height) / 250))
+      : Math.max(1, Math.round(Math.min(width, height) / 1200));
   for (let dx = -thickness; dx <= thickness; dx++) {
     for (let dy = -thickness; dy <= thickness; dy++) {
       if (dx * dx + dy * dy > thickness * thickness) continue;
