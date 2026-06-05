@@ -10,12 +10,7 @@ import {
   OPTIMIZATION_PRESETS,
   type Student,
 } from "@/lib/students";
-import {
-  callShapeGen,
-  callWordExpansion,
-  getFallbackShapeSvg,
-  type WordEntry,
-} from "@/lib/gemini";
+import { callShapeGen, callWordExpansion, getFallbackShapeSvg, type WordEntry } from "@/lib/gemini";
 import {
   buildMaskFromSvg,
   detectMaskOrientation,
@@ -196,8 +191,12 @@ function ShapeWordsApp() {
   useEffect(() => {
     let cancel = false;
     Promise.all([
-      buildMaskFromSvg(shapeSvg, 512).catch(() => buildMaskFromSvg(getFallbackShapeSvg(shapeField), 512)),
-      detectMaskOrientation(shapeSvg).catch(() => detectMaskOrientation(getFallbackShapeSvg(shapeField))),
+      buildMaskFromSvg(shapeSvg, 512).catch(() =>
+        buildMaskFromSvg(getFallbackShapeSvg(shapeField), 512),
+      ),
+      detectMaskOrientation(shapeSvg).catch(() =>
+        detectMaskOrientation(getFallbackShapeSvg(shapeField)),
+      ),
     ]).then(([mask, orientation]) => {
       if (cancel) return;
       maskRef.current = { mask, size: 512 };
@@ -206,7 +205,7 @@ function ShapeWordsApp() {
     return () => {
       cancel = true;
     };
-  }, [shapeSvg]);
+  }, [shapeField, shapeSvg]);
 
   const packWordsWithWorker = useCallback(
     async (
