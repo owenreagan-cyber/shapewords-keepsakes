@@ -23,31 +23,34 @@ function maskAt(mask: Uint8Array, maskSize: number, nx: number, ny: number): boo
   return mask[my * maskSize + mx] === 1;
 }
 
-// Dense containment test: sample interior + perimeter points. ALL must be inside.
+// Strict containment: 4 corners + 8 perimeter midpoints + center. ALL must be inside.
 function boxInsideMask(
   mask: Uint8Array,
   maskSize: number,
   box: Box,
   width: number,
   height: number,
-  inset: number,
+  padPx: number,
 ): boolean {
-  const ix = box.w * inset;
-  const iy = box.h * inset;
-  const x0 = box.x + ix;
-  const y0 = box.y + iy;
-  const w = box.w - 2 * ix;
-  const h = box.h - 2 * iy;
+  const x0 = box.x + padPx;
+  const y0 = box.y + padPx;
+  const w = box.w - 2 * padPx;
+  const h = box.h - 2 * padPx;
   if (w <= 0 || h <= 0) return false;
-  // 5x3 grid of sample points covering the glyph bbox.
-  const cols = 5;
-  const rows = 3;
-  for (let r = 0; r <= rows; r++) {
-    for (let c = 0; c <= cols; c++) {
-      const px = x0 + (w * c) / cols;
-      const py = y0 + (h * r) / rows;
-      if (!maskAt(mask, maskSize, px / width, py / height)) return false;
-    }
+  const x1 = x0 + w;
+  const y1 = y0 + h;
+  const mx = x0 + w / 2;
+  const my = y0 + h / 2;
+  // 4 corners (mandatory), center, and 8 perimeter midpoints/quarters.
+  const pts: Array<[number, number]> = [
+    [x0, y0], [x1, y0], [x0, y1], [x1, y1],
+    [mx, my],
+    [mx, y0], [mx, y1], [x0, my], [x1, my],
+    [x0 + w * 0.25, y0], [x0 + w * 0.75, y0],
+    [x0 + w * 0.25, y1], [x0 + w * 0.75, y1],
+  ];
+  for (const [px, py] of pts) {
+    if (!maskAt(mask, maskSize, px / width, py / height)) return false;
   }
   return true;
 }
@@ -97,8 +100,7 @@ class Grid {
 
 function createMeasureContext(): OffscreenCanvasRenderingContext2D | null {
   if (typeof OffscreenCanvas === "undefined") return null;
-  const ctx = new OffscreenCanvas(1, 1).getContext("2d");
-  return ctx;
+  return new OffscreenCanvas(1, 1).getContext("2d");
 }
 
 const measureCtx = createMeasureContext();
@@ -116,22 +118,69 @@ function measureWord(
   return word.length * fontSize * 0.58;
 }
 
+// --- Color helpers ---------------------------------------------------------
+
+function hexToRgb(hex: string): [number, number, number] | null {
+  const m = hex.trim().match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (!m) return null;
+  let h = m[1];
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+function rgbToHex(r: number, g: number, b: number): string {
+  const c = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+  return `#${c(r)}${c(g)}${c(b)}`;
+}
+function mix(a: string, b: string, t: number): string {
+  const ra = hexToRgb(a), rb = hexToRgb(b);
+  if (!ra || !rb) return a;
+  return rgbToHex(ra[0] + (rb[0] - ra[0]) * t, ra[1] + (rb[1] - ra[1]) * t, ra[2] + (rb[2] - ra[2]) * t);
+}
+function luminance(hex: string): number {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 0.5;
+  return (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+}
+function colorsClose(a: string, b: string, tol = 0.08): boolean {
+  return Math.abs(luminance(a) - luminance(b)) < tol;
+}
+
+function buildPalette(opts: PackOptions): { dark: string; mid: string; light: string; accent: string } {
+  const primary = opts.primaryColor ?? "#000000";
+  const accent = opts.accentColor;
+  const bg = opts.bgColor ?? "#FFFFFF";
+  const src = (opts.palette && opts.palette.length > 0 ? opts.palette : [primary, accent, mix(primary, bg, 0.55)])
+    .filter((c) => hexToRgb(c));
+  // sort dark → light by luminance
+  const sorted = [...src].sort((a, b) => luminance(a) - luminance(b));
+  const dark = sorted[0] ?? primary;
+  const light = sorted[sorted.length - 1] ?? mix(primary, bg, 0.55);
+  const mid = sorted[Math.floor(sorted.length / 2)] ?? accent;
+  // Contrast guard: any color too close to bg → fall back
+  const safe = (c: string) => (colorsClose(c, bg) ? primary : c);
+  return { dark: safe(dark), mid: safe(mid), light: safe(light), accent: safe(accent) };
+}
+
+// --- Main packer -----------------------------------------------------------
+
 function computePlacements(
   mask: Uint8Array,
   maskSize: number,
   opts: PackOptions,
 ): PackComputationResult {
   const { width, height } = opts;
-  const primary = opts.primaryColor ?? "#000000";
-  const accent = opts.accentColor;
+  const minDim = Math.min(width, height);
+  const EDGE_PAD = Math.max(2, minDim * 0.006);
+
+  const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
   const nameFont = opts.nameFontFamily ?? opts.fontFamily;
-  const grid = new Grid(Math.max(20, Math.min(width, height) / 40));
+  const grid = new Grid(Math.max(20, minDim / 40));
 
   const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40;
   const emphasisMul = 0.8 + opts.emphasis * 0.1;
-  const rotChance = (opts.rotation / 100) * (etsy ? 0.2 : 1);
   const randomness = (opts.randomness / 100) * (etsy ? 0.6 : 1);
   const adherence = opts.adherence / 100;
 
@@ -143,7 +192,7 @@ function computePlacements(
   if (!nameEntry) sorted.unshift({ word: opts.name, category: "Name", importanceScore: 1000 });
 
   const rest = sorted.filter((w) => w.word.toLowerCase() !== opts.name.toLowerCase());
-  const tier2 = rest.filter((w) => w.importanceScore >= 85).slice(0, etsy ? 6 : 8);
+  const tier2 = rest.filter((w) => w.importanceScore >= 85).slice(0, etsy ? 6 : 10);
   const tier3 = rest
     .filter((w) => w.importanceScore >= 40 && w.importanceScore < 85)
     .slice(0, etsy ? 55 : 80);
@@ -151,7 +200,7 @@ function computePlacements(
     .filter((w) => w.importanceScore >= 10 && w.importanceScore < 40)
     .slice(0, etsy ? 140 : 200);
   const pool = rest.filter((w) => w.importanceScore < 50);
-  const tier5Cap = pool.length > 0 ? (etsy ? 180 : 400) : 0;
+  const tier5Cap = pool.length > 0 ? (etsy ? 240 : 500) : 0;
 
   const totalUnits = Math.max(1, 1 + tier2.length + tier3.length + tier4.length + tier5Cap);
   let completedUnits = 0;
@@ -181,7 +230,7 @@ function computePlacements(
     const key = word.toLowerCase();
     wordCounts.set(key, (wordCounts.get(key) ?? 0) + 1);
     uniqueWordsSeen.add(key);
-    if (color === accent) accentPlacements++;
+    if (color === palette.accent) accentPlacements++;
     const area = box.w * box.h;
     const midX = box.x + box.w / 2;
     const midY = box.y + box.h / 2;
@@ -191,48 +240,51 @@ function computePlacements(
     else bottomWeight += area;
   }
 
+  // tier: 2 | 3 | 4 | 5  → controls rotation policy & attempt budget
   function place(
     word: string,
     fontSize: number,
     color: string,
-    allowRotate: boolean,
-    mustBeInMask: boolean,
+    tier: 2 | 3 | 4 | 5,
     fontFamily: string,
     fontWeight: number,
   ): boolean {
-    const angle = allowRotate && Math.random() < rotChance ? Math.PI / 2 : 0;
+    // 80/20 horizontal-vs-vertical for tier 3+; tier 2 stays horizontal for legibility.
+    const allowRotate = tier >= 3;
+    const angle = allowRotate && Math.random() < 0.2 ? Math.PI / 2 : 0;
     const tw = measureWord(word, fontSize, fontFamily, fontWeight);
     const th = fontSize * 1.05;
     const bw = angle ? th : tw;
     const bh = angle ? tw : th;
 
-    const startR = Math.min(width, height) * (1 - opts.centerBias / 100) * 0.1;
+    const startR = minDim * (1 - opts.centerBias / 100) * 0.1;
     const maxR = Math.max(width, height);
     const step = Math.max(2, fontSize * 0.15 * (1 + randomness));
-    const maxAttempts = 2000;
+    const maxAttempts = tier === 5 ? 400 : tier === 4 ? 1200 : 2000;
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
+
+    // adherence-driven inset on top of EDGE_PAD
+    const pad = Math.max(EDGE_PAD, EDGE_PAD + minDim * 0.004 * adherence);
 
     for (let i = 0; i < maxAttempts; i++) {
       const x = cx + Math.cos(theta) * r;
       const y = cy + Math.sin(theta) * r;
       const box: Box = { x: x - bw / 2, y: y - bh / 2, w: bw, h: bh };
 
-      if (box.x < 4 || box.y < 4 || box.x + box.w > width - 4 || box.y + box.h > height - 4) {
+      // Canvas bounds with EDGE_PAD
+      if (
+        box.x < EDGE_PAD ||
+        box.y < EDGE_PAD ||
+        box.x + box.w > width - EDGE_PAD ||
+        box.y + box.h > height - EDGE_PAD
+      ) {
         theta += GOLDEN_ANGLE;
         r += step * 0.1;
         continue;
       }
 
-      // Dense containment test. Inset shrinks each candidate box ~3% so glyph
-      // ascenders/descenders never poke past the silhouette outline.
-      const inset = 0.03 + 0.04 * adherence; // higher adherence → tighter
-      const insideMask = boxInsideMask(mask, maskSize, box, width, height, inset);
-
-      // Frame-quality keepsake: ALWAYS require the word inside the mask.
-      // `mustBeInMask` is kept in the signature for API stability but ignored.
-      void mustBeInMask;
-      if (!insideMask) {
+      if (!boxInsideMask(mask, maskSize, box, width, height, pad)) {
         theta += GOLDEN_ANGLE;
         r += step * 0.05;
         continue;
@@ -240,20 +292,10 @@ function computePlacements(
 
       if (!grid.collides(box)) {
         grid.add(box);
-        const placement: PackPlacement = {
-          x,
-          y,
-          word,
-          fontSize,
-          color,
-          angle,
-          fontFamily,
-          fontWeight,
-        };
-        placements.push(placement);
+        placements.push({ x, y, word, fontSize, color, angle, fontFamily, fontWeight });
         trackPlacement(word, box, color);
         placedTotal++;
-        if (insideMask) placedInsideMask++;
+        placedInsideMask++;
         return true;
       }
 
@@ -265,8 +307,7 @@ function computePlacements(
     return false;
   }
 
-  // Ensure the student's name is ALWAYS rendered prominently and never clipped.
-  // Start from an emphasis-driven target size, then shrink to fit the canvas width.
+  // --- Tier 1: name, locked to center, registered FIRST ---
   const nameText = (opts.name || "").trim();
   const targetNameSize =
     height *
@@ -276,10 +317,7 @@ function computePlacements(
   let nameSize = targetNameSize;
   if (nameText) {
     let measured = measureWord(nameText, nameSize, nameFont, 800);
-    if (measured > maxNameWidth) {
-      nameSize = nameSize * (maxNameWidth / measured);
-    }
-    // Enforce a visible minimum so the name never disappears on long names / narrow shapes
+    if (measured > maxNameWidth) nameSize = nameSize * (maxNameWidth / measured);
     const minNameSize = Math.max(28, height * 0.06);
     if (nameSize < minNameSize) nameSize = minNameSize;
     measured = measureWord(nameText, nameSize, nameFont, 800);
@@ -290,9 +328,7 @@ function computePlacements(
       h: nameSize + 12,
     };
     grid.add(nameBox);
-    // Guarantee accent never matches the background (otherwise the name would be invisible)
-    const bg = (opts.bgColor ?? "#FFFFFF").toLowerCase();
-    const nameColor = accent.toLowerCase() === bg ? primary : accent;
+    const nameColor = palette.dark;
     placements.push({
       word: nameText,
       x: cx,
@@ -304,50 +340,65 @@ function computePlacements(
       fontWeight: 800,
     });
     trackPlacement(nameText, nameBox, nameColor);
+    placedTotal++;
+    placedInsideMask++;
   }
-  placedTotal++;
-  placedInsideMask++;
   completedUnits++;
   sendProgress();
 
+  // --- Tier 2: large, dark, horizontal-only ---
   for (const w of tier2) {
-    const fs = height * (etsy ? 0.032 : 0.04 + Math.random() * 0.02) * scaleMul * emphasisMul;
-    const color = Math.random() < (etsy ? 0.24 : 0.3) ? accent : primary;
-    place(w.word, fs, color, false, true, bodyFont, 400);
+    const fs = height * (etsy ? 0.038 : 0.05 + Math.random() * 0.015) * scaleMul * emphasisMul;
+    const color = Math.random() < 0.25 ? palette.accent : palette.dark;
+    place(w.word, fs, color, 2, bodyFont, 700);
     completedUnits++;
     sendProgress();
   }
 
   const densityMul = (opts.density / 100) * (etsy ? 0.82 : 1);
+
+  // --- Tier 3: medium, mid/dark mix ---
   for (const w of tier3) {
     if (Math.random() <= densityMul) {
       const fs = height * (etsy ? 0.019 : 0.022) * scaleMul;
-      const color = Math.random() < (etsy ? 0.11 : 0.15) ? accent : primary;
-      place(w.word, fs, color, !etsy, Math.random() < adherence, bodyFont, 400);
+      const color = Math.random() < 0.5 ? palette.dark : palette.mid;
+      place(w.word, fs, color, 3, bodyFont, 500);
     }
     completedUnits++;
     sendProgress();
   }
 
+  // --- Tier 4: small, mid color dominant ---
   for (const w of tier4) {
     if (Math.random() <= densityMul) {
       const fs = height * (etsy ? 0.011 : 0.013) + (Math.random() - 0.5) * 2;
-      const color = Math.random() < (etsy ? 0.08 : 0.12) ? accent : primary;
-      place(w.word, fs, color, !etsy, Math.random() < adherence, bodyFont, 400);
+      const color = Math.random() < 0.2 ? palette.accent : palette.mid;
+      place(w.word, fs, color, 4, bodyFont, 400);
     }
     completedUnits++;
     sendProgress();
   }
 
+  // --- Tier 5: micro-filler mortar, shrink down to 8pt, hunt aggressively ---
   if (pool.length > 0) {
+    const MIN_FONT_PT = 8; // pixels ≈ pt at 1:1
+    const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.011 : 0.012));
     for (let i = 0; i < tier5Cap; i++) {
       const w = pool[i % pool.length];
-      const fs = height * (etsy ? 0.007 : 0.008);
-      const color = Math.random() < (etsy ? 0.06 : 0.1) ? accent : primary;
-      const ok = place(w.word, fs, color, !etsy, Math.random() < adherence, bodyFont, 400);
+      // try shrinking sizes until it fits
+      let placed = false;
+      const sizes = [startFs, startFs * 0.85, startFs * 0.7, MIN_FONT_PT];
+      for (const fs of sizes) {
+        if (fs < MIN_FONT_PT - 0.5) continue;
+        const color = palette.light;
+        if (place(w.word, fs, color, 5, bodyFont, 400)) {
+          placed = true;
+          break;
+        }
+      }
+      void placed;
       completedUnits++;
       sendProgress();
-      if (!ok && i > 100) break;
     }
   }
 

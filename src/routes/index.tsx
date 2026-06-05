@@ -309,6 +309,7 @@ function ShapeWordsApp() {
             accentColor: accent,
             primaryColor: student.colorPalette[0] ?? "#000000",
             bgColor: "#FFFFFF",
+            palette: student.colorPalette,
             density: renderConfig.density,
             scaling: renderConfig.scaling,
             adherence: renderConfig.adherence,
