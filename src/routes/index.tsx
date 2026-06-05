@@ -116,6 +116,7 @@ function defaultConfig(s: Student): Config {
     randomness: 15,
     centerBias: 85,
     silhouetteStyle: "Premium Print",
+    outlineMode: "invisible",
     preset: "Premium Print",
     resolution: "print",
     etsyMode: true,
