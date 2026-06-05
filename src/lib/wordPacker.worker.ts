@@ -318,23 +318,24 @@ function computePlacements(
 
   // --- Tier 1: name, locked to center, registered FIRST ---
   const nameText = (opts.name || "").trim();
+  // Reference-art sizing: ~10% of canvas height, with small emphasis nudge.
   const targetNameSize =
     height *
-    (etsy ? 0.13 : 0.16 + 0.04 * Math.min(1, emphasisMul - 0.9)) *
+    ((etsy ? 0.085 : 0.10) + 0.01 * Math.min(1, Math.max(-1, emphasisMul - 1))) *
     scaleMul;
-  const maxNameWidth = width * 0.78;
+  const maxNameWidth = width * 0.55;
   let nameSize = targetNameSize;
   if (nameText) {
     let measured = measureWord(nameText, nameSize, nameFont, 800);
     if (measured > maxNameWidth) nameSize = nameSize * (maxNameWidth / measured);
-    const minNameSize = Math.max(28, height * 0.06);
+    const minNameSize = Math.max(24, height * 0.05);
     if (nameSize < minNameSize) nameSize = minNameSize;
     measured = measureWord(nameText, nameSize, nameFont, 800);
     const nameBox: Box = {
-      x: cx - measured / 2 - 10,
-      y: cy - nameSize / 2 - 6,
-      w: measured + 20,
-      h: nameSize + 12,
+      x: cx - measured / 2 - 6,
+      y: cy - nameSize / 2 - 4,
+      w: measured + 12,
+      h: nameSize + 8,
     };
     grid.add(nameBox);
     const nameColor = palette.dark;
@@ -357,7 +358,7 @@ function computePlacements(
 
   // --- Tier 2: large, dark, horizontal-only ---
   for (const w of tier2) {
-    const fs = height * (etsy ? 0.038 : 0.05 + Math.random() * 0.015) * scaleMul * emphasisMul;
+    const fs = height * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
     place(w.word, fs, color, 2, bodyFont, 700);
     completedUnits++;
