@@ -1016,7 +1016,7 @@ function triggerDownload(href: string, filename: string) {
   document.body.removeChild(a);
 }
 
-async function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
+async function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
@@ -1024,7 +1024,7 @@ async function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Bl
         return;
       }
       resolve(blob);
-    }, type);
+    }, type, quality);
   });
 }
 
