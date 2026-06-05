@@ -138,7 +138,38 @@ Return ONLY JSON matching:
   if (!parsed || !parsed.words || parsed.words.length < 30) {
     throw new Error(`Gemini returned only ${parsed?.words?.length ?? 0} usable words`);
   }
+  parsed.words = sanitizeWords(parsed.words, args.name);
   return parsed;
+}
+
+// School-appropriate filter: drops appearance / romantic / age-inappropriate words.
+const BANNED_EXACT = new Set<string>([
+  "cute","beautiful","sexy","hot","pretty","gorgeous","attractive","handsome",
+  "adorable","lovely","stunning","ugly","fat","skinny","thin","slim","tall","short",
+  "love","loves","crush","kiss","kissing","date","dating","boyfriend","girlfriend",
+  "hate","hates","stupid","dumb","idiot","loser","mean","cruel","bossy",
+  "babe","baby","hottie","cool-looking","fit","muscular","busty","curvy","slender",
+]);
+const BANNED_ROOTS = ["sexi","kiss","crush","babe","hottie","muscle","model-like"];
+
+export function sanitizeWords<T extends { word: string }>(entries: T[], keepName?: string): T[] {
+  const keep = (keepName || "").toLowerCase();
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const e of entries) {
+    const w = (e.word || "").trim().toLowerCase();
+    if (!w) continue;
+    if (w === keep) {
+      if (!seen.has(w)) { seen.add(w); out.push(e); }
+      continue;
+    }
+    if (BANNED_EXACT.has(w)) continue;
+    if (BANNED_ROOTS.some((r) => w.includes(r))) continue;
+    if (seen.has(w)) continue;
+    seen.add(w);
+    out.push(e);
+  }
+  return out;
 }
 
 
