@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TestHarnessRouteImport } from './routes/test-harness'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiGenerateSilhouetteRouteImport } from './routes/api/generate-silhouette'
 
 const TestHarnessRoute = TestHarnessRouteImport.update({
   id: '/test-harness',
@@ -22,31 +23,40 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiGenerateSilhouetteRoute = ApiGenerateSilhouetteRouteImport.update({
+  id: '/api/generate-silhouette',
+  path: '/api/generate-silhouette',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/test-harness': typeof TestHarnessRoute
+  '/api/generate-silhouette': typeof ApiGenerateSilhouetteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/test-harness': typeof TestHarnessRoute
+  '/api/generate-silhouette': typeof ApiGenerateSilhouetteRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/test-harness': typeof TestHarnessRoute
+  '/api/generate-silhouette': typeof ApiGenerateSilhouetteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/test-harness'
+  fullPaths: '/' | '/test-harness' | '/api/generate-silhouette'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/test-harness'
-  id: '__root__' | '/' | '/test-harness'
+  to: '/' | '/test-harness' | '/api/generate-silhouette'
+  id: '__root__' | '/' | '/test-harness' | '/api/generate-silhouette'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TestHarnessRoute: typeof TestHarnessRoute
+  ApiGenerateSilhouetteRoute: typeof ApiGenerateSilhouetteRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/generate-silhouette': {
+      id: '/api/generate-silhouette'
+      path: '/api/generate-silhouette'
+      fullPath: '/api/generate-silhouette'
+      preLoaderRoute: typeof ApiGenerateSilhouetteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TestHarnessRoute: TestHarnessRoute,
+  ApiGenerateSilhouetteRoute: ApiGenerateSilhouetteRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

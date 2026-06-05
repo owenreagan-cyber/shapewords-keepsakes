@@ -81,43 +81,48 @@ Return ONLY JSON matching:
   return parsed as ExpansionResponse;
 }
 
-// Image-generation endpoint (Nano Banana). Returns a PNG silhouette as a data URL.
-const IMAGE_API_BASE =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
+// Server-route-backed silhouette generation. Uses Lovable AI Gateway (gpt-image-2).
+// Falls back to local deterministic SVGs when the route or gateway fails.
+const SHAPE_CACHE_PREFIX = "lvbl_shape_v2:";
+
+function getCachedShape(key: string): string | null {
+  if (typeof sessionStorage === "undefined") return null;
+  try {
+    return sessionStorage.getItem(SHAPE_CACHE_PREFIX + key);
+  } catch {
+    return null;
+  }
+}
+function setCachedShape(key: string, value: string): void {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(SHAPE_CACHE_PREFIX + key, value);
+  } catch {
+    /* quota */
+  }
+}
 
 export async function callShapeGen(shapeDescription: string, style: string): Promise<string> {
   const deterministicShape = getDeterministicShapeSvg(shapeDescription);
   if (deterministicShape) return deterministicShape;
 
-  const prompt = `A bold, solid pure-black silhouette of: ${shapeDescription}.
-Style reference: ${style}.
-Strict requirements:
-- Pure white (#FFFFFF) background, edge to edge.
-- The subject is a single solid black (#000000) silhouette only — no outlines, no shading, no gradients, no patterns, no text, no watermark, no border.
-- Iconic, instantly recognizable pose for ${shapeDescription}; preserve characteristic features (ears, limbs, accessories).
-- Chunky, thickened, plush-toy proportions so the silhouette has lots of internal area; no thin spindly parts.
-- The silhouette is centered and fills approximately 80% of a square 1:1 frame.
-- Crisp, clean edges. Flat 2D vector-look. No 3D rendering, no photography.`;
+  const cacheKey = `${style}::${shapeDescription}`;
+  const cached = getCachedShape(cacheKey);
+  if (cached) return cached;
 
-  const res = await fetch(`${IMAGE_API_BASE}?key=${getKey()}`, {
+  const res = await fetch("/api/generate-silhouette", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ["IMAGE"] },
-    }),
+    body: JSON.stringify({ shape: shapeDescription, style }),
   });
-  if (!res.ok) throw new Error(`Gemini image ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  const parts = data?.candidates?.[0]?.content?.parts ?? [];
-  for (const p of parts) {
-    const inline = p?.inlineData ?? p?.inline_data;
-    if (inline?.data) {
-      const mime = inline.mimeType || inline.mime_type || "image/png";
-      return `data:${mime};base64,${inline.data}`;
-    }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Silhouette route ${res.status}: ${text.slice(0, 200)}`);
   }
-  throw new Error("Gemini image returned no inline image data");
+  const data = (await res.json()) as { dataUrl?: string };
+  if (!data.dataUrl) throw new Error("Silhouette route returned no dataUrl");
+  setCachedShape(cacheKey, data.dataUrl);
+  return data.dataUrl;
 }
 
 // Fallback heart shape
