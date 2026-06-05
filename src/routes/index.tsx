@@ -1400,6 +1400,7 @@ function drawMaskOutline(
   maskSize: number,
   width: number,
   height: number,
+  mode: "thin" | "decorative" = "thin",
 ) {
   // Edge-detect: a pixel is an edge if it's inside (mask=1) and has any 4-neighbor outside.
   const edge = new Uint8ClampedArray(maskSize * maskSize * 4);
