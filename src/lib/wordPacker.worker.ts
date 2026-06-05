@@ -491,7 +491,7 @@ function computePlacements(
     sendProgress();
   }
 
-  const densityMul = (opts.density / 100) * (etsy ? 0.82 : 1);
+  void ((opts.density / 100) * (etsy ? 0.82 : 1));
 
   // --- Tier 3: medium ---
   for (const w of tier3) {
