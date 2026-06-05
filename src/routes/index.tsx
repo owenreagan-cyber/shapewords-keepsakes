@@ -284,6 +284,7 @@ function ShapeWordsApp() {
       maskSize = 512,
       onProgress,
       syncState = false,
+      paletteOverride,
     }: RenderJob) => {
       canvas.width = size.w;
       canvas.height = size.h;
@@ -294,7 +295,8 @@ function ShapeWordsApp() {
         ? { mask, size: maskSize }
         : { mask: await buildMaskFromSvg(svg, maskSize), size: maskSize };
       const wordSet = normalizeWordEntries(student.name, rawWords, student.traits);
-      const accent = student.colorPalette[1] ?? "#D97706";
+      const palette = paletteOverride && paletteOverride.length > 0 ? paletteOverride : student.colorPalette;
+      const accent = palette[1] ?? "#D97706";
       const typography = pickTypographyPair(renderConfig.fontFamily, renderConfig.etsyMode);
 
       if (syncState) setPackingProgress(0);
@@ -313,9 +315,9 @@ function ShapeWordsApp() {
             bodyFontFamily: typography.bodyFont,
             nameFontFamily: typography.nameFont,
             accentColor: accent,
-            primaryColor: student.colorPalette[0] ?? "#000000",
+            primaryColor: palette[0] ?? "#000000",
             bgColor: "#FFFFFF",
-            palette: student.colorPalette,
+            palette,
             density: renderConfig.density,
             scaling: renderConfig.scaling,
             adherence: renderConfig.adherence,
