@@ -582,8 +582,8 @@ function ShapeWordsApp() {
           mask,
           onProgress: setPackingProgress,
         });
-        const blob = await canvasToBlob(off, "image/png");
-        zip.file(`${toSafeFilenamePart(s.name)}-wordart.png`, blob);
+        const blob = await canvasToBlob(off, "image/jpeg", 0.95);
+        zip.file(`${toSafeFilenamePart(s.name)}_WordArt_8x10_300dpi.jpg`, blob);
       }
       setStatus("Creating ZIP...");
       const blob = await zip.generateAsync({ type: "blob" });
