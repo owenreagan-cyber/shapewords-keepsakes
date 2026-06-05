@@ -81,25 +81,40 @@ Return ONLY JSON matching:
   return parsed as ExpansionResponse;
 }
 
-export async function callShapeGen(shapeDescription: string, style: string): Promise<string> {
-  const sys = `You are an expert SVG designer creating BOLD, MASSIVE silhouettes for word-art alpha masks. Subject: ${shapeDescription}. Style: ${style}.
+// Image-generation endpoint (Nano Banana). Returns a PNG silhouette as a data URL.
+const IMAGE_API_BASE =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent";
 
-CRITICAL RULES:
-(1) Output ONLY valid SVG, no markdown, no explanation, no backticks.
-(2) viewBox='0 0 1000 1000'.
-(3) Single solid black fill #000000, no strokes, no gradients, no outlines, no background element.
-(4) MAXIMUM BOLDNESS AND MASS — the silhouette MUST fill AT LEAST 75% of the viewBox area with solid black. This is a HARD requirement: thin limbs, narrow tails, and skinny appendages MUST be thickened dramatically (2-4x their natural proportion) so words can fit inside them. Better to look chunky and chubby than thin and elegant.
-(5) Inflate every body part: thicken legs, widen arms, fatten torsos, bulk up heads. Think "plush toy" or "balloon animal" proportions, not realistic anatomy.
-(6) Preserve and EXAGGERATE iconic landmarks (ears, action pose, characteristic features) so the silhouette is recognizable from 10 feet away.
-(7) Use <path> elements with smooth bold curves. Merge small disconnected parts into the main mass when possible.
-(8) The shape should nearly touch the viewBox edges on at least two sides — push it large, do not leave generous padding.
-(9) Self-check before output: would this silhouette, if filled solid black, cover roughly three-quarters of a 1000x1000 square? If not, make it bigger and thicker.`;
-  const text = await callGemini(
-    sys,
-    `Generate the BOLD, MASSIVE SVG silhouette now for: ${shapeDescription}. Remember: minimum 75% viewBox fill, inflated proportions, no thin parts.`,
-  );
-  const m = text.match(/<svg[\s\S]*<\/svg>/i);
-  return m ? m[0] : text;
+export async function callShapeGen(shapeDescription: string, style: string): Promise<string> {
+  const prompt = `A bold, solid pure-black silhouette of: ${shapeDescription}.
+Style reference: ${style}.
+Strict requirements:
+- Pure white (#FFFFFF) background, edge to edge.
+- The subject is a single solid black (#000000) silhouette only — no outlines, no shading, no gradients, no patterns, no text, no watermark, no border.
+- Iconic, instantly recognizable pose for ${shapeDescription}; preserve characteristic features (ears, limbs, accessories).
+- Chunky, thickened, plush-toy proportions so the silhouette has lots of internal area; no thin spindly parts.
+- The silhouette is centered and fills approximately 80% of a square 1:1 frame.
+- Crisp, clean edges. Flat 2D vector-look. No 3D rendering, no photography.`;
+
+  const res = await fetch(`${IMAGE_API_BASE}?key=${getKey()}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ["IMAGE"] },
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini image ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  const parts = data?.candidates?.[0]?.content?.parts ?? [];
+  for (const p of parts) {
+    const inline = p?.inlineData ?? p?.inline_data;
+    if (inline?.data) {
+      const mime = inline.mimeType || inline.mime_type || "image/png";
+      return `data:${mime};base64,${inline.data}`;
+    }
+  }
+  throw new Error("Gemini image returned no inline image data");
 }
 
 // Fallback heart shape
