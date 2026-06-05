@@ -191,14 +191,93 @@ function computePlacements(
   const shapeH = bboxH;
   const shapeMin = Math.min(bboxW, bboxH);
 
-  // Tight edge buffer so words hug the silhouette outline (reference art).
-  const EDGE_PAD = Math.max(2, shapeMin * 0.002);
+  // Edge-hug pad — words can sit ~1-2px from silhouette outline.
+  const EDGE_PAD = Math.max(1, shapeMin * 0.001);
+
+  // --- Occupancy grid (distributed seeding + real coverage %) ---
+  const OG = 220;
+  const cellW = width / OG;
+  const cellH = height / OG;
+  const inMask = new Uint8Array(OG * OG);
+  let maskCellCount = 0;
+  for (let y = 0; y < OG; y++) {
+    for (let x = 0; x < OG; x++) {
+      const nx = (x + 0.5) / OG;
+      const ny = (y + 0.5) / OG;
+      const mxi = Math.min(maskSize - 1, Math.floor(nx * maskSize));
+      const myi = Math.min(maskSize - 1, Math.floor(ny * maskSize));
+      if (mask[myi * maskSize + mxi] === 1) {
+        inMask[y * OG + x] = 1;
+        maskCellCount++;
+      }
+    }
+  }
+  const occupied = new Uint8Array(OG * OG);
+  let occupiedCount = 0;
+
+  const isEmptyCell = (i: number) => inMask[i] === 1 && occupied[i] === 0;
+
+  function markBoxOcc(box: Box) {
+    const cx0 = Math.max(0, Math.floor(box.x / cellW));
+    const cy0 = Math.max(0, Math.floor(box.y / cellH));
+    const cx1 = Math.min(OG - 1, Math.floor((box.x + box.w) / cellW));
+    const cy1 = Math.min(OG - 1, Math.floor((box.y + box.h) / cellH));
+    for (let yy = cy0; yy <= cy1; yy++) {
+      for (let xx = cx0; xx <= cx1; xx++) {
+        const i = yy * OG + xx;
+        if (inMask[i] === 1 && occupied[i] === 0) {
+          occupied[i] = 1;
+          occupiedCount++;
+        }
+      }
+    }
+  }
+
+  // Pick a random empty in-mask cell as a placement seed.
+  function pickEmptySeed(): { x: number; y: number } | null {
+    for (let t = 0; t < 120; t++) {
+      const i = Math.floor(Math.random() * OG * OG);
+      if (isEmptyCell(i)) {
+        return {
+          x: ((i % OG) + 0.5) * cellW,
+          y: (Math.floor(i / OG) + 0.5) * cellH,
+        };
+      }
+    }
+    return null;
+  }
+
+  // Pick seed weighted toward the largest empty region (for big words).
+  function pickLargestEmptySeed(samples = 50): { x: number; y: number } | null {
+    let best: { x: number; y: number; score: number } | null = null;
+    const R = 6;
+    for (let t = 0; t < samples; t++) {
+      const i = Math.floor(Math.random() * OG * OG);
+      if (!isEmptyCell(i)) continue;
+      const cx = i % OG;
+      const cy = Math.floor(i / OG);
+      let score = 0;
+      for (let dy = -R; dy <= R; dy++) {
+        const yy = cy + dy;
+        if (yy < 0 || yy >= OG) continue;
+        for (let dx = -R; dx <= R; dx++) {
+          const xx = cx + dx;
+          if (xx < 0 || xx >= OG) continue;
+          if (isEmptyCell(yy * OG + xx)) score++;
+        }
+      }
+      if (!best || score > best.score) {
+        best = { x: (cx + 0.5) * cellW, y: (cy + 0.5) * cellH, score };
+      }
+    }
+    return best;
+  }
 
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
   const nameFont = opts.nameFontFamily ?? opts.fontFamily;
   // Finer collision grid → tighter packing between neighbors.
-  const grid = new Grid(Math.max(10, shapeMin / 70));
+  const grid = new Grid(Math.max(8, shapeMin / 80));
 
   const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40;
