@@ -233,30 +233,46 @@ function computePlacements(
     return false;
   }
 
-  const nameSize =
+  // Ensure the student's name is ALWAYS rendered prominently and never clipped.
+  // Start from an emphasis-driven target size, then shrink to fit the canvas width.
+  const nameText = (opts.name || "").trim();
+  const targetNameSize =
     height *
-    (etsy ? 0.11 : 0.14 + 0.04 * Math.min(1, emphasisMul - 0.9)) *
-    scaleMul *
-    (etsy ? 0.75 : 0.8);
-  const nameWidth = measureWord(opts.name, nameSize, nameFont, 700);
-  const nameBox: Box = {
-    x: cx - nameWidth / 2 - 10,
-    y: cy - nameSize / 2 - 6,
-    w: nameWidth + 20,
-    h: nameSize + 12,
-  };
-  grid.add(nameBox);
-  placements.push({
-    word: opts.name,
-    x: cx,
-    y: cy,
-    fontSize: nameSize,
-    color: accent,
-    angle: 0,
-    fontFamily: nameFont,
-    fontWeight: 700,
-  });
-  trackPlacement(opts.name, nameBox, accent);
+    (etsy ? 0.13 : 0.16 + 0.04 * Math.min(1, emphasisMul - 0.9)) *
+    scaleMul;
+  const maxNameWidth = width * 0.78;
+  let nameSize = targetNameSize;
+  if (nameText) {
+    let measured = measureWord(nameText, nameSize, nameFont, 800);
+    if (measured > maxNameWidth) {
+      nameSize = nameSize * (maxNameWidth / measured);
+    }
+    // Enforce a visible minimum so the name never disappears on long names / narrow shapes
+    const minNameSize = Math.max(28, height * 0.06);
+    if (nameSize < minNameSize) nameSize = minNameSize;
+    measured = measureWord(nameText, nameSize, nameFont, 800);
+    const nameBox: Box = {
+      x: cx - measured / 2 - 10,
+      y: cy - nameSize / 2 - 6,
+      w: measured + 20,
+      h: nameSize + 12,
+    };
+    grid.add(nameBox);
+    // Guarantee accent never matches the background (otherwise the name would be invisible)
+    const bg = (opts.bgColor ?? "#FFFFFF").toLowerCase();
+    const nameColor = accent.toLowerCase() === bg ? primary : accent;
+    placements.push({
+      word: nameText,
+      x: cx,
+      y: cy,
+      fontSize: nameSize,
+      color: nameColor,
+      angle: 0,
+      fontFamily: nameFont,
+      fontWeight: 800,
+    });
+    trackPlacement(nameText, nameBox, nameColor);
+  }
   placedTotal++;
   placedInsideMask++;
   completedUnits++;
@@ -311,7 +327,11 @@ function computePlacements(
   const lrDelta = Math.abs(leftWeight - rightWeight) / (leftWeight + rightWeight || 1);
   const tbDelta = Math.abs(topWeight - bottomWeight) / (topWeight + bottomWeight || 1);
   const balanceScore = Math.max(0, 100 - ((lrDelta + tbDelta) / 2) * 140);
-  const nameAreaPct = ((nameBox.w * nameBox.h) / (width * height)) * 100;
+  const nameAreaPct = nameText
+    ? ((measureWord(nameText, nameSize, nameFont, 800) + 20) * (nameSize + 12) /
+        (width * height)) *
+      100
+    : 0;
   const accentRatio = (accentPlacements / Math.max(1, placedTotal)) * 100;
 
   const result: PackResult = {
