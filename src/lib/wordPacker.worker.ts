@@ -201,7 +201,14 @@ function computePlacements(
   const tier4 = rest
     .filter((w) => w.importanceScore >= 10 && w.importanceScore < 40)
     .slice(0, etsy ? 140 : 200);
-  const pool = rest.filter((w) => w.importanceScore < 50);
+  // Tier 5 = mortar; dedupe against everything already scheduled so words don't repeat.
+  const usedKeys = new Set<string>([
+    opts.name.toLowerCase(),
+    ...tier2.map((w) => w.word.toLowerCase()),
+    ...tier3.map((w) => w.word.toLowerCase()),
+    ...tier4.map((w) => w.word.toLowerCase()),
+  ]);
+  const pool = rest.filter((w) => !usedKeys.has(w.word.toLowerCase()));
   const tier5Cap = pool.length > 0 ? (etsy ? 240 : 500) : 0;
 
   const totalUnits = Math.max(1, 1 + tier2.length + tier3.length + tier4.length + tier5Cap);
@@ -311,23 +318,24 @@ function computePlacements(
 
   // --- Tier 1: name, locked to center, registered FIRST ---
   const nameText = (opts.name || "").trim();
+  // Reference-art sizing: ~10% of canvas height, with small emphasis nudge.
   const targetNameSize =
     height *
-    (etsy ? 0.13 : 0.16 + 0.04 * Math.min(1, emphasisMul - 0.9)) *
+    ((etsy ? 0.085 : 0.10) + 0.01 * Math.min(1, Math.max(-1, emphasisMul - 1))) *
     scaleMul;
-  const maxNameWidth = width * 0.78;
+  const maxNameWidth = width * 0.55;
   let nameSize = targetNameSize;
   if (nameText) {
     let measured = measureWord(nameText, nameSize, nameFont, 800);
     if (measured > maxNameWidth) nameSize = nameSize * (maxNameWidth / measured);
-    const minNameSize = Math.max(28, height * 0.06);
+    const minNameSize = Math.max(24, height * 0.05);
     if (nameSize < minNameSize) nameSize = minNameSize;
     measured = measureWord(nameText, nameSize, nameFont, 800);
     const nameBox: Box = {
-      x: cx - measured / 2 - 10,
-      y: cy - nameSize / 2 - 6,
-      w: measured + 20,
-      h: nameSize + 12,
+      x: cx - measured / 2 - 6,
+      y: cy - nameSize / 2 - 4,
+      w: measured + 12,
+      h: nameSize + 8,
     };
     grid.add(nameBox);
     const nameColor = palette.dark;
@@ -350,7 +358,7 @@ function computePlacements(
 
   // --- Tier 2: large, dark, horizontal-only ---
   for (const w of tier2) {
-    const fs = height * (etsy ? 0.038 : 0.05 + Math.random() * 0.015) * scaleMul * emphasisMul;
+    const fs = height * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
     place(w.word, fs, color, 2, bodyFont, 700);
     completedUnits++;
@@ -361,7 +369,7 @@ function computePlacements(
 
   // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
   for (const w of tier3) {
-    const fs = height * (etsy ? 0.019 : 0.022) * scaleMul;
+    const fs = height * (etsy ? 0.017 : 0.019) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
     place(w.word, fs, color, 3, bodyFont, 500);
     completedUnits++;
@@ -370,7 +378,7 @@ function computePlacements(
 
   // --- Tier 4: small, mid color dominant — always try ---
   for (const w of tier4) {
-    const fs = height * (etsy ? 0.011 : 0.013) + (Math.random() - 0.5) * 2;
+    const fs = height * (etsy ? 0.0105 : 0.0115) + (Math.random() - 0.5) * 1.5;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
     place(w.word, fs, color, 4, bodyFont, 400);
     completedUnits++;
@@ -379,18 +387,23 @@ function computePlacements(
 
   // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
   if (pool.length > 0) {
-    const MIN_FONT_PT = 7;
-    const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.011 : 0.012));
-    const HARD_CAP = etsy ? 1200 : 3000;
-    const MAX_CONSEC_FAIL = 80; // stop when canvas refuses 80 in a row at min size
+    const MIN_FONT_PT = 6;
+    const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.010 : 0.011));
+    const HARD_CAP = etsy ? 2000 : 5000;
+    const MAX_CONSEC_FAIL = 200; // stop only after deep saturation
     const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
+    const perWordCap = 2;
     let consecFail = 0;
     let i = 0;
     while (i < HARD_CAP && consecFail < MAX_CONSEC_FAIL) {
       const w = pool[i % pool.length];
+      const key = w.word.toLowerCase();
+      if ((wordCounts.get(key) ?? 0) >= perWordCap) {
+        i++;
+        continue;
+      }
       let placed = false;
-      // Shrink aggressively; once we're saturated, only the smallest size has any chance.
-      const sizes = [startFs, startFs * 0.85, startFs * 0.7, MIN_FONT_PT];
+      const sizes = [startFs, startFs * 0.85, startFs * 0.7, MIN_FONT_PT, MIN_FONT_PT];
       for (const fs of sizes) {
         if (fs < MIN_FONT_PT - 0.5) continue;
         if (place(w.word, fs, palette.light, 5, bodyFont, 400)) {
@@ -412,6 +425,7 @@ function computePlacements(
   }
 
 
+
   const coverage = placedTotal === 0 ? 0 : placedInsideMask / placedTotal;
   const uniqueCount = uniqueWordsSeen.size;
   const duplicateCount = Math.max(0, placedTotal - uniqueCount);
@@ -421,7 +435,7 @@ function computePlacements(
   const tbDelta = Math.abs(topWeight - bottomWeight) / (topWeight + bottomWeight || 1);
   const balanceScore = Math.max(0, 100 - ((lrDelta + tbDelta) / 2) * 140);
   const nameAreaPct = nameText
-    ? ((measureWord(nameText, nameSize, nameFont, 800) + 20) * (nameSize + 12) /
+    ? ((measureWord(nameText, nameSize, nameFont, 800) + 12) * (nameSize + 8) /
         (width * height)) *
       100
     : 0;

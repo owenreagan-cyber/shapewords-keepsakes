@@ -415,17 +415,25 @@ function ShapeWordsApp() {
         ? normalizeWordEntries(nameField, expansion.words, traitsField)
         : normalizeWordEntries(nameField, seedFromTraits(active.name, traitsField), traitsField);
       setWords(generatedWords);
+      // "Generate Best Possible" forces the dense, balanced look regardless of slider state.
+      const bestOverrides = {
+        etsyMode: true,
+        emphasis: 4,
+        adherence: 95,
+        centerBias: 85,
+        density: 100,
+      } as const;
       if (expansion?.words?.length && expansion.design) {
         setConfig((c) => ({
           ...c,
           fontFamily: expansion.design.fontFamily || c.fontFamily,
-          density: clamp(expansion.design.density ?? c.density, 10, 100),
           scaling: clamp(expansion.design.scaling ?? c.scaling, 10, 50),
-          adherence: clamp(expansion.design.adherence ?? c.adherence, 10, 100),
-          centerBias: clamp(expansion.design.centerBias ?? c.centerBias, 0, 100),
           rotation: clamp(expansion.design.rotation ?? c.rotation, 0, 100),
           randomness: clamp(expansion.design.randomness ?? c.randomness, 0, 100),
+          ...bestOverrides,
         }));
+      } else {
+        setConfig((c) => ({ ...c, ...bestOverrides }));
       }
       setStatus("Packing words...");
       await new Promise((r) => setTimeout(r, 50));
