@@ -296,8 +296,10 @@ function computePlacements(
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
 
-    // adherence-driven inset on top of EDGE_PAD
-    const pad = Math.max(EDGE_PAD, EDGE_PAD + shapeMin * 0.004 * adherence);
+    // Pad is the inset applied to BOTH sides inside boxInsideMask. It must be
+    // small relative to the word's own font size, or tier 3/4/5 boxes shrink
+    // to a negative effective size and always fail the mask test.
+    const pad = Math.max(1, Math.min(fontSize * 0.18, 3 + fontSize * 0.05 * adherence));
 
     for (let i = 0; i < maxAttempts; i++) {
       const x = cx + Math.cos(theta) * r;
