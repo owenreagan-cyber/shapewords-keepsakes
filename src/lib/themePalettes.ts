@@ -2,7 +2,7 @@
 
 export type BestPreset = { palette: string[]; fontFamily: string };
 
-const KEY = (s: string) => (s || "").toLowerCase();
+const KEY = (s?: string) => (s || "").toLowerCase();
 
 export function pickBestPreset(args: {
   theme?: string;
