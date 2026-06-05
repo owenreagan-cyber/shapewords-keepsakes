@@ -373,7 +373,7 @@ const FALLBACK_STAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 </svg>`;
 
 const SHAPE_SVG_RULES: Array<{ pattern: RegExp; svg: string; deterministic: boolean }> = [
-  { pattern: /(teddy|red panda|bear)/, svg: FALLBACK_BEAR_SVG, deterministic: true },
+  { pattern: /(teddy|red panda|bear)/, svg: FALLBACK_BEAR_SVG, deterministic: false },
   {
     pattern: /(graceful.*dancer.*leaping|girl leaping in dance|leaping in dance)/,
     svg: FALLBACK_LEAPING_GIRL_DANCER_SVG,
