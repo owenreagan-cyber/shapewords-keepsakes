@@ -427,10 +427,7 @@ function ShapeWordsApp() {
         setConfig((c) => ({
           ...c,
           fontFamily: expansion.design.fontFamily || c.fontFamily,
-          density: clamp(expansion.design.density ?? c.density, 10, 100),
           scaling: clamp(expansion.design.scaling ?? c.scaling, 10, 50),
-          adherence: clamp(expansion.design.adherence ?? c.adherence, 10, 100),
-          centerBias: clamp(expansion.design.centerBias ?? c.centerBias, 0, 100),
           rotation: clamp(expansion.design.rotation ?? c.rotation, 0, 100),
           randomness: clamp(expansion.design.randomness ?? c.randomness, 0, 100),
           ...bestOverrides,
