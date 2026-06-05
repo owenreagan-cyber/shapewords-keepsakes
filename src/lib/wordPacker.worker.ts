@@ -23,6 +23,35 @@ function maskAt(mask: Uint8Array, maskSize: number, nx: number, ny: number): boo
   return mask[my * maskSize + mx] === 1;
 }
 
+// Dense containment test: sample interior + perimeter points. ALL must be inside.
+function boxInsideMask(
+  mask: Uint8Array,
+  maskSize: number,
+  box: Box,
+  width: number,
+  height: number,
+  inset: number,
+): boolean {
+  const ix = box.w * inset;
+  const iy = box.h * inset;
+  const x0 = box.x + ix;
+  const y0 = box.y + iy;
+  const w = box.w - 2 * ix;
+  const h = box.h - 2 * iy;
+  if (w <= 0 || h <= 0) return false;
+  // 5x3 grid of sample points covering the glyph bbox.
+  const cols = 5;
+  const rows = 3;
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const px = x0 + (w * c) / cols;
+      const py = y0 + (h * r) / rows;
+      if (!maskAt(mask, maskSize, px / width, py / height)) return false;
+    }
+  }
+  return true;
+}
+
 function rectsOverlap(a: Box, b: Box): boolean {
   return !(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y);
 }
