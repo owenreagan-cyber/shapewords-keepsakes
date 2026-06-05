@@ -332,7 +332,7 @@ function ShapeWordsApp() {
           },
           onProgress ?? (syncState ? setPackingProgress : undefined),
         );
-        drawShapeOutline(ctx, svg, size.w, size.h, effectiveMask.mask, effectiveMask.size);
+        // Invisible Shape Mode: SVG is used only as a placement mask — no outline drawn.
         if (syncState) {
           setPlacedCount(result.placedCount);
           setQuality(scoreLayout(result, wordSet, renderConfig));
