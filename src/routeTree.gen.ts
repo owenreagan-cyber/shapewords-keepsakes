@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TestHarnessRouteImport } from './routes/test-harness'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -17,26 +18,36 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 
+const TestHarnessRoute = TestHarnessRouteImport.update({
+  id: '/test-harness',
+  path: '/test-harness',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/test-harness': typeof TestHarnessRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/test-harness': typeof TestHarnessRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/test-harness': typeof TestHarnessRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/test-harness'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/test-harness'
+  id: '__root__' | '/' | '/test-harness'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  TestHarnessRoute: typeof TestHarnessRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +59,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/test-harness': {
+      id: '/test-harness'
+      path: '/test-harness'
+      fullPath: '/test-harness'
+      preLoaderRoute: typeof TestHarnessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  TestHarnessRoute: TestHarnessRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
