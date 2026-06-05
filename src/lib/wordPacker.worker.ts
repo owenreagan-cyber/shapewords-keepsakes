@@ -524,9 +524,15 @@ function computePlacements(
     const COVERAGE_MAX = 0.95;
     let consecFail = 0;
     let i = 0;
-    while (i < HARD_CAP && consecFail < MAX_CONSEC_FAIL) {
+    while (i < HARD_CAP) {
       const coverageNow = maskCellCount === 0 ? 1 : occupiedCount / maskCellCount;
+      if (coverageNow >= COVERAGE_MAX) break;
       if (coverageNow >= COVERAGE_TARGET) break;
+      // Below floor: keep pushing even past plateau (reset budget once).
+      if (consecFail >= MAX_CONSEC_FAIL) {
+        if (coverageNow < COVERAGE_FLOOR) consecFail = 0;
+        else break;
+      }
 
       const w = pool[i % pool.length];
       const key = w.word.toLowerCase();
