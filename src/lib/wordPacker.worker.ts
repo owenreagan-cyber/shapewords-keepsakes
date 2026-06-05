@@ -292,15 +292,15 @@ function computePlacements(
 
     const startR = shapeMin * (1 - opts.centerBias / 100) * 0.1;
     const maxR = Math.max(bboxW, bboxH);
-    const step = Math.max(2, fontSize * 0.15 * (1 + randomness));
-    const maxAttempts = tier === 5 ? 400 : tier === 4 ? 1200 : 2000;
+    // Smaller search step → denser sampling along the spiral.
+    const step = Math.max(1, fontSize * 0.08 * (1 + randomness));
+    const maxAttempts = tier === 5 ? 1500 : tier === 4 ? 2500 : 3500;
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
 
-    // Pad is the inset applied to BOTH sides inside boxInsideMask. It must be
-    // small relative to the word's own font size, or tier 3/4/5 boxes shrink
-    // to a negative effective size and always fail the mask test.
-    const pad = Math.max(1, Math.min(fontSize * 0.18, 3 + fontSize * 0.05 * adherence));
+    // Tight inter-word padding — small absolute floor so micro-words can
+    // mortar into gaps between larger words.
+    const pad = Math.max(0.5, Math.min(fontSize * 0.08, 1 + fontSize * 0.02 * adherence));
 
     for (let i = 0; i < maxAttempts; i++) {
       const x = cx + Math.cos(theta) * r;
