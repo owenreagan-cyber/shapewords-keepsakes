@@ -108,8 +108,21 @@ async function resolveSvgContent(svgOrUrl: string): Promise<string> {
 }
 
 export async function detectMaskOrientation(svgOrUrl: string): Promise<MaskOrientation> {
+  const source = svgOrUrl.trim();
+  const isSvgMarkup = source.startsWith("<svg") || source.startsWith("<?xml");
+  if (!isSvgMarkup) {
+    // Image URL (data:/http:) — measure natural dimensions.
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () =>
+        resolve(img.naturalWidth > img.naturalHeight ? "landscape" : "portrait");
+      img.onerror = () => resolve("portrait");
+      img.src = source;
+    });
+  }
   try {
-    const svg = await resolveSvgContent(svgOrUrl);
+    const svg = await resolveSvgContent(source);
     const dimensions = parseSvgDimensions(svg);
     if (!dimensions) return "portrait";
     return dimensions.width > dimensions.height ? "landscape" : "portrait";
