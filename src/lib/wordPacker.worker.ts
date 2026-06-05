@@ -482,70 +482,74 @@ function computePlacements(
   completedUnits++;
   sendProgress();
 
-  // --- Tier 2: large, dark, horizontal-only ---
+  // --- Tier 2: large, dark, horizontal-only. Seed in largest empty region. ---
   for (const w of tier2) {
     const fs = shapeH * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
-    place(w.word, fs, color, 2, bodyFont, 700);
+    placeWithSeeds(w.word, fs, color, 2, bodyFont, 700, 5, true);
     completedUnits++;
     sendProgress();
   }
 
   const densityMul = (opts.density / 100) * (etsy ? 0.82 : 1);
 
-  // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
+  // --- Tier 3: medium ---
   for (const w of tier3) {
     const fs = shapeH * (etsy ? 0.015 : 0.017) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
-    place(w.word, fs, color, 3, bodyFont, 500);
+    placeWithSeeds(w.word, fs, color, 3, bodyFont, 500, 4, false);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Tier 4: small, mid color dominant — always try ---
+  // --- Tier 4: small ---
   for (const w of tier4) {
     const fs = shapeH * (etsy ? 0.0095 : 0.0105) + (Math.random() - 0.5) * 1.2;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
-    place(w.word, fs, color, 4, bodyFont, 400);
+    placeWithSeeds(w.word, fs, color, 4, bodyFont, 400, 3, false);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
+  // --- Tier 5: coverage-driven micro-fill mortar ---
+  // Keep placing micro words until area coverage reaches ~95% OR we plateau.
   if (pool.length > 0) {
-    const MIN_FONT_PT = Math.max(4, shapeMin * 0.004);
+    const MIN_FONT_PT = Math.max(3, shapeMin * 0.0028);
     const startFs = Math.max(MIN_FONT_PT, shapeH * (etsy ? 0.0085 : 0.0095));
-    const HARD_CAP = etsy ? 4000 : 8000;
-    const MAX_CONSEC_FAIL = 400; // stop only after deep saturation
-    const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
-    const perWordCap = 3;
+    const HARD_CAP = etsy ? 6000 : 12000;
+    const MAX_CONSEC_FAIL = 600;
+    const perWordCap = 4;
+    const COVERAGE_TARGET = 0.95;
     let consecFail = 0;
     let i = 0;
     while (i < HARD_CAP && consecFail < MAX_CONSEC_FAIL) {
+      const coverageNow = maskCellCount === 0 ? 1 : occupiedCount / maskCellCount;
+      if (coverageNow >= COVERAGE_TARGET) break;
+
       const w = pool[i % pool.length];
       const key = w.word.toLowerCase();
       if ((wordCounts.get(key) ?? 0) >= perWordCap) {
         i++;
         continue;
       }
+      // Adaptive shrink — get smaller as coverage climbs, so we squeeze into gaps.
+      const shrink = 1 - Math.min(0.6, coverageNow * 0.5);
+      const baseFs = Math.max(MIN_FONT_PT, startFs * shrink);
+      const sizes = [baseFs, baseFs * 0.8, baseFs * 0.6, MIN_FONT_PT];
       let placed = false;
-      // Wider size ladder — shrink aggressively into tiny gaps.
-      const sizes = [startFs, startFs * 0.85, startFs * 0.7, startFs * 0.55, MIN_FONT_PT];
       for (const fs of sizes) {
         if (fs < MIN_FONT_PT - 0.5) continue;
-        if (place(w.word, fs, palette.light, 5, bodyFont, 400)) {
+        // Always seed from an empty cell — true gap-filling.
+        if (placeWithSeeds(w.word, fs, palette.light, 5, bodyFont, 400, 3, false)) {
           placed = true;
           break;
         }
       }
-      if (placed) {
-        consecFail = 0;
-      } else {
-        consecFail++;
-      }
+      if (placed) consecFail = 0;
+      else consecFail++;
       i++;
-      if (i <= targetCap) {
-        completedUnits++;
+      if (i % 20 === 0) {
+        completedUnits = Math.min(totalUnits - 1, completedUnits + 1);
         sendProgress();
       }
     }
