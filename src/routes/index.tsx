@@ -582,8 +582,8 @@ function ShapeWordsApp() {
           mask,
           onProgress: setPackingProgress,
         });
-        const blob = await canvasToBlob(off, "image/png");
-        zip.file(`${toSafeFilenamePart(s.name)}-wordart.png`, blob);
+        const blob = await canvasToBlob(off, "image/jpeg", 0.95);
+        zip.file(`${toSafeFilenamePart(s.name)}_WordArt_8x10_300dpi.jpg`, blob);
       }
       setStatus("Creating ZIP...");
       const blob = await zip.generateAsync({ type: "blob" });
@@ -1016,7 +1016,7 @@ function triggerDownload(href: string, filename: string) {
   document.body.removeChild(a);
 }
 
-async function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
+async function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (!blob) {
@@ -1024,7 +1024,7 @@ async function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Bl
         return;
       }
       resolve(blob);
-    }, type);
+    }, type, quality);
   });
 }
 
