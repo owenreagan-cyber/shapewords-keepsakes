@@ -10,7 +10,8 @@ import {
   OPTIMIZATION_PRESETS,
   type Student,
 } from "@/lib/students";
-import { callShapeGen, callWordExpansion, getFallbackShapeSvg, type WordEntry } from "@/lib/gemini";
+import { callShapeGen, callWordExpansion, getFallbackShapeSvg, sanitizeWords, type WordEntry } from "@/lib/gemini";
+import { pickBestPreset } from "@/lib/themePalettes";
 import {
   buildMaskFromSvg,
   detectMaskOrientation,
