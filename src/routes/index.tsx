@@ -98,6 +98,7 @@ type RenderJob = {
   maskSize?: number;
   onProgress?: (progress: number) => void;
   syncState?: boolean;
+  paletteOverride?: string[];
 };
 
 function defaultConfig(s: Student): Config {
