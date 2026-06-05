@@ -435,7 +435,7 @@ function computePlacements(
   const tbDelta = Math.abs(topWeight - bottomWeight) / (topWeight + bottomWeight || 1);
   const balanceScore = Math.max(0, 100 - ((lrDelta + tbDelta) / 2) * 140);
   const nameAreaPct = nameText
-    ? ((measureWord(nameText, nameSize, nameFont, 800) + 20) * (nameSize + 12) /
+    ? ((measureWord(nameText, nameSize, nameFont, 800) + 12) * (nameSize + 8) /
         (width * height)) *
       100
     : 0;
