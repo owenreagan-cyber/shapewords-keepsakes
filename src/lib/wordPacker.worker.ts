@@ -369,7 +369,7 @@ function computePlacements(
 
   // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
   for (const w of tier3) {
-    const fs = height * (etsy ? 0.019 : 0.022) * scaleMul;
+    const fs = height * (etsy ? 0.017 : 0.019) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
     place(w.word, fs, color, 3, bodyFont, 500);
     completedUnits++;
@@ -378,7 +378,7 @@ function computePlacements(
 
   // --- Tier 4: small, mid color dominant — always try ---
   for (const w of tier4) {
-    const fs = height * (etsy ? 0.011 : 0.013) + (Math.random() - 0.5) * 2;
+    const fs = height * (etsy ? 0.0105 : 0.0115) + (Math.random() - 0.5) * 1.5;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
     place(w.word, fs, color, 4, bodyFont, 400);
     completedUnits++;
@@ -387,18 +387,23 @@ function computePlacements(
 
   // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
   if (pool.length > 0) {
-    const MIN_FONT_PT = 7;
-    const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.011 : 0.012));
-    const HARD_CAP = etsy ? 1200 : 3000;
-    const MAX_CONSEC_FAIL = 80; // stop when canvas refuses 80 in a row at min size
+    const MIN_FONT_PT = 6;
+    const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.010 : 0.011));
+    const HARD_CAP = etsy ? 2000 : 5000;
+    const MAX_CONSEC_FAIL = 200; // stop only after deep saturation
     const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
+    const perWordCap = 2;
     let consecFail = 0;
     let i = 0;
     while (i < HARD_CAP && consecFail < MAX_CONSEC_FAIL) {
       const w = pool[i % pool.length];
+      const key = w.word.toLowerCase();
+      if ((wordCounts.get(key) ?? 0) >= perWordCap) {
+        i++;
+        continue;
+      }
       let placed = false;
-      // Shrink aggressively; once we're saturated, only the smallest size has any chance.
-      const sizes = [startFs, startFs * 0.85, startFs * 0.7, MIN_FONT_PT];
+      const sizes = [startFs, startFs * 0.85, startFs * 0.7, MIN_FONT_PT, MIN_FONT_PT];
       for (const fs of sizes) {
         if (fs < MIN_FONT_PT - 0.5) continue;
         if (place(w.word, fs, palette.light, 5, bodyFont, 400)) {
@@ -418,6 +423,7 @@ function computePlacements(
       }
     }
   }
+
 
 
   const coverage = placedTotal === 0 ? 0 : placedInsideMask / placedTotal;
