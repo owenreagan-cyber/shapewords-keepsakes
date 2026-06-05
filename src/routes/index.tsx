@@ -1252,24 +1252,78 @@ function drawShapeOutline(
   svg: string,
   width: number,
   height: number,
+  mask?: Uint8Array,
+  maskSize?: number,
 ) {
-  const viewBoxMatch = svg.match(/viewBox=["']([\d.\s-]+)["']/i);
-  const [vbX, vbY, vbW, vbH] = (viewBoxMatch?.[1] || "0 0 1000 1000")
-    .split(/\s+/)
-    .map((n) => Number(n));
-  const pathMatches = [...svg.matchAll(/<path[^>]*d=["']([^"']+)["'][^>]*>/gi)];
-  if (pathMatches.length === 0) return;
+  const source = svg.trim();
+  const isSvgMarkup = source.startsWith("<svg") || source.startsWith("<?xml");
+
+  // SVG path silhouette → stroke the actual vector paths.
+  if (isSvgMarkup) {
+    const viewBoxMatch = source.match(/viewBox=["']([\d.\s-]+)["']/i);
+    const [vbX, vbY, vbW, vbH] = (viewBoxMatch?.[1] || "0 0 1000 1000")
+      .split(/\s+/)
+      .map((n) => Number(n));
+    const pathMatches = [...source.matchAll(/<path[^>]*d=["']([^"']+)["'][^>]*>/gi)];
+    if (pathMatches.length > 0) {
+      ctx.save();
+      ctx.scale(width / vbW, height / vbH);
+      ctx.translate(-vbX, -vbY);
+      ctx.strokeStyle = "#0A0A0A";
+      ctx.lineWidth = Math.max(10, Math.min(vbW, vbH) * 0.01);
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      for (const m of pathMatches) ctx.stroke(new Path2D(m[1]));
+      ctx.restore();
+      return;
+    }
+  }
+
+  // Raster silhouette (e.g. Gemini-generated PNG) → derive outline from the mask.
+  if (!mask || !maskSize) return;
+  drawMaskOutline(ctx, mask, maskSize, width, height);
+}
+
+function drawMaskOutline(
+  ctx: CanvasRenderingContext2D,
+  mask: Uint8Array,
+  maskSize: number,
+  width: number,
+  height: number,
+) {
+  // Edge-detect: a pixel is an edge if it's inside (mask=1) and has any 4-neighbor outside.
+  const edge = new Uint8ClampedArray(maskSize * maskSize * 4);
+  for (let y = 0; y < maskSize; y++) {
+    for (let x = 0; x < maskSize; x++) {
+      const i = y * maskSize + x;
+      if (!mask[i]) continue;
+      const up = y > 0 ? mask[i - maskSize] : 0;
+      const dn = y < maskSize - 1 ? mask[i + maskSize] : 0;
+      const lf = x > 0 ? mask[i - 1] : 0;
+      const rt = x < maskSize - 1 ? mask[i + 1] : 0;
+      if (!up || !dn || !lf || !rt) {
+        const o = i * 4;
+        edge[o] = 10;
+        edge[o + 1] = 10;
+        edge[o + 2] = 10;
+        edge[o + 3] = 255;
+      }
+    }
+  }
+  const off = document.createElement("canvas");
+  off.width = maskSize;
+  off.height = maskSize;
+  off.getContext("2d")!.putImageData(new ImageData(edge, maskSize, maskSize), 0, 0);
 
   ctx.save();
-  ctx.translate(0, 0);
-  ctx.scale(width / vbW, height / vbH);
-  ctx.translate(-vbX, -vbY);
-  ctx.strokeStyle = "#0A0A0A";
-  ctx.lineWidth = Math.max(10, Math.min(vbW, vbH) * 0.01);
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  for (const match of pathMatches) {
-    ctx.stroke(new Path2D(match[1]));
+  ctx.imageSmoothingEnabled = true;
+  // Thicken by drawing the edge layer multiple times with 1px offsets.
+  const thickness = Math.max(2, Math.round(Math.min(width, height) / 400));
+  for (let dx = -thickness; dx <= thickness; dx++) {
+    for (let dy = -thickness; dy <= thickness; dy++) {
+      if (dx * dx + dy * dy > thickness * thickness) continue;
+      ctx.drawImage(off, dx, dy, width, height);
+    }
   }
   ctx.restore();
 }
