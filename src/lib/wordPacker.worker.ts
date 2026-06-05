@@ -359,50 +359,58 @@ function computePlacements(
 
   const densityMul = (opts.density / 100) * (etsy ? 0.82 : 1);
 
-  // --- Tier 3: medium, mid/dark mix ---
+  // --- Tier 3: medium, mid/dark mix — always try, density only nudges size ---
   for (const w of tier3) {
-    if (Math.random() <= densityMul) {
-      const fs = height * (etsy ? 0.019 : 0.022) * scaleMul;
-      const color = Math.random() < 0.5 ? palette.dark : palette.mid;
-      place(w.word, fs, color, 3, bodyFont, 500);
-    }
+    const fs = height * (etsy ? 0.019 : 0.022) * scaleMul;
+    const color = Math.random() < 0.5 ? palette.dark : palette.mid;
+    place(w.word, fs, color, 3, bodyFont, 500);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Tier 4: small, mid color dominant ---
+  // --- Tier 4: small, mid color dominant — always try ---
   for (const w of tier4) {
-    if (Math.random() <= densityMul) {
-      const fs = height * (etsy ? 0.011 : 0.013) + (Math.random() - 0.5) * 2;
-      const color = Math.random() < 0.2 ? palette.accent : palette.mid;
-      place(w.word, fs, color, 4, bodyFont, 400);
-    }
+    const fs = height * (etsy ? 0.011 : 0.013) + (Math.random() - 0.5) * 2;
+    const color = Math.random() < 0.2 ? palette.accent : palette.mid;
+    place(w.word, fs, color, 4, bodyFont, 400);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Tier 5: micro-filler mortar, shrink down to 8pt, hunt aggressively ---
+  // --- Tier 5: micro-filler mortar — keep going until the canvas is saturated ---
   if (pool.length > 0) {
-    const MIN_FONT_PT = 8; // pixels ≈ pt at 1:1
+    const MIN_FONT_PT = 7;
     const startFs = Math.max(MIN_FONT_PT, height * (etsy ? 0.011 : 0.012));
-    for (let i = 0; i < tier5Cap; i++) {
+    const HARD_CAP = etsy ? 1200 : 3000;
+    const MAX_CONSEC_FAIL = 80; // stop when canvas refuses 80 in a row at min size
+    const targetCap = Math.max(tier5Cap, Math.round(HARD_CAP * densityMul));
+    let consecFail = 0;
+    let i = 0;
+    while (i < HARD_CAP && consecFail < MAX_CONSEC_FAIL) {
       const w = pool[i % pool.length];
-      // try shrinking sizes until it fits
       let placed = false;
+      // Shrink aggressively; once we're saturated, only the smallest size has any chance.
       const sizes = [startFs, startFs * 0.85, startFs * 0.7, MIN_FONT_PT];
       for (const fs of sizes) {
         if (fs < MIN_FONT_PT - 0.5) continue;
-        const color = palette.light;
-        if (place(w.word, fs, color, 5, bodyFont, 400)) {
+        if (place(w.word, fs, palette.light, 5, bodyFont, 400)) {
           placed = true;
           break;
         }
       }
-      void placed;
-      completedUnits++;
-      sendProgress();
+      if (placed) {
+        consecFail = 0;
+      } else {
+        consecFail++;
+      }
+      i++;
+      if (i <= targetCap) {
+        completedUnits++;
+        sendProgress();
+      }
     }
   }
+
 
   const coverage = placedTotal === 0 ? 0 : placedInsideMask / placedTotal;
   const uniqueCount = uniqueWordsSeen.size;
