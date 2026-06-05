@@ -71,6 +71,7 @@ type Config = {
   randomness: number; // 0-100
   centerBias: number; // 0-100
   silhouetteStyle: string;
+  outlineMode: "invisible" | "thin" | "decorative";
   preset: string;
   resolution: keyof typeof EXPORT_RES;
   etsyMode: boolean;
