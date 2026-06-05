@@ -10,7 +10,12 @@ import {
   OPTIMIZATION_PRESETS,
   type Student,
 } from "@/lib/students";
-import { callShapeGen, callWordExpansion, FALLBACK_HEART_SVG, type WordEntry } from "@/lib/gemini";
+import {
+  callShapeGen,
+  callWordExpansion,
+  getFallbackShapeSvg,
+  type WordEntry,
+} from "@/lib/gemini";
 import {
   buildMaskFromSvg,
   detectMaskOrientation,
@@ -130,7 +135,7 @@ function ShapeWordsApp() {
   const [traitsField, setTraitsField] = useState(active.traits);
   const [shapeField, setShapeField] = useState(active.shape);
   const [words, setWords] = useState<WordEntry[]>([]);
-  const [shapeSvg, setShapeSvg] = useState<string>(FALLBACK_HEART_SVG);
+  const [shapeSvg, setShapeSvg] = useState<string>(() => getFallbackShapeSvg(STUDENTS[0].shape));
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [placedCount, setPlacedCount] = useState(0);
@@ -163,7 +168,7 @@ function ShapeWordsApp() {
     setShapeField(active.shape);
     setConfig(defaultConfig(active));
     setWords([]);
-    setShapeSvg(FALLBACK_HEART_SVG);
+    setShapeSvg(getFallbackShapeSvg(active.shape));
     setQuality(null);
 
     let cancel = false;
@@ -191,8 +196,8 @@ function ShapeWordsApp() {
   useEffect(() => {
     let cancel = false;
     Promise.all([
-      buildMaskFromSvg(shapeSvg, 512).catch(() => buildMaskFromSvg(FALLBACK_HEART_SVG, 512)),
-      detectMaskOrientation(shapeSvg).catch(() => detectMaskOrientation(FALLBACK_HEART_SVG)),
+      buildMaskFromSvg(shapeSvg, 512).catch(() => buildMaskFromSvg(getFallbackShapeSvg(shapeField), 512)),
+      detectMaskOrientation(shapeSvg).catch(() => detectMaskOrientation(getFallbackShapeSvg(shapeField))),
     ]).then(([mask, orientation]) => {
       if (cancel) return;
       maskRef.current = { mask, size: 512 };
@@ -400,7 +405,7 @@ function ShapeWordsApp() {
         }),
         callShapeGen(shapeField, config.silhouetteStyle).catch((e) => {
           console.warn("Shape gen failed, fallback:", e);
-          return FALLBACK_HEART_SVG;
+          return getFallbackShapeSvg(shapeField);
         }),
       ]);
       setStatus("Building mask...");
@@ -508,7 +513,7 @@ function ShapeWordsApp() {
           }),
           callShapeGen(s.shape, studentConfig.silhouetteStyle).catch((error) => {
             console.warn("Batch shape generation failed:", s.name, error);
-            return FALLBACK_HEART_SVG;
+            return getFallbackShapeSvg(s.shape);
           }),
         ]);
         const orientation = await detectMaskOrientation(svg);
