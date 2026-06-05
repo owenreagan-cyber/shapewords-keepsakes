@@ -320,7 +320,7 @@ function ShapeWordsApp() {
           },
           onProgress ?? (syncState ? setPackingProgress : undefined),
         );
-        drawShapeOutline(ctx, svg, size.w, size.h);
+        drawShapeOutline(ctx, svg, size.w, size.h, effectiveMask.mask, effectiveMask.size);
         if (syncState) {
           setPlacedCount(result.placedCount);
           setQuality(scoreLayout(result, wordSet, renderConfig));
