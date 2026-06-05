@@ -23,7 +23,8 @@ function maskAt(mask: Uint8Array, maskSize: number, nx: number, ny: number): boo
   return mask[my * maskSize + mx] === 1;
 }
 
-// Strict containment: 4 corners + 8 perimeter midpoints + center. ALL must be inside.
+// Edge-hugging containment: 4 corners + center only. Fewer test points let
+// words approach within ~1-3px of silhouette edges (reference Etsy art).
 function boxInsideMask(
   mask: Uint8Array,
   maskSize: number,
@@ -41,13 +42,9 @@ function boxInsideMask(
   const y1 = y0 + h;
   const mx = x0 + w / 2;
   const my = y0 + h / 2;
-  // 4 corners (mandatory), center, and 8 perimeter midpoints/quarters.
   const pts: Array<[number, number]> = [
     [x0, y0], [x1, y0], [x0, y1], [x1, y1],
     [mx, my],
-    [mx, y0], [mx, y1], [x0, my], [x1, my],
-    [x0 + w * 0.25, y0], [x0 + w * 0.75, y0],
-    [x0 + w * 0.25, y1], [x0 + w * 0.75, y1],
   ];
   for (const [px, py] of pts) {
     if (!maskAt(mask, maskSize, px / width, py / height)) return false;
