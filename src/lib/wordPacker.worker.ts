@@ -463,6 +463,7 @@ function computePlacements(
       h: nameSize + 8,
     };
     grid.add(nameBox);
+    markBoxOcc(nameBox);
     const nameColor = palette.dark;
     placements.push({
       word: nameText,
