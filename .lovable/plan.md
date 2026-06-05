@@ -1,40 +1,52 @@
-# Fix unrecognizable silhouettes (teddy bear → "lady's dress")
+## Problem
 
-## Root cause
+The Abby output shows the exact two failure modes you flagged:
 
-`callShapeGen` in `src/lib/gemini.ts` asks **Gemini 2.5-flash (a text model)** to hand-write SVG `<path>` data for a teddy bear, dog, etc. Text LLMs cannot draw — even with a strict prompt, the model returned a generic oval blob (see the latest network response: one rounded path that looks like a dress/heart). No amount of prompt tuning fixes this; it is a capability limit, not a wording problem.
+1. **The silhouette doesn't look like a bear.** It's just two stacked ovals (head + body) with no ears, arms, legs, or muzzle. That's because Gemini's image call is failing (console shows `Missing VITE_GEMINI_API_KEY in environment` — the key isn't reaching the running app) and the code falls back to `FALLBACK_BEAR_SVG`, which is literally two circles. Same root cause for every shape that "looks like a lady's dress" — the fallbacks are too generic.
+2. **Words stick out past the outline.** The packer only checks the word's center + two corners against the mask, and tier‑3/4/5 words are placed with `Math.random() < adherence` — so a large fraction of words bypass the mask check entirely and land outside the shape.
 
-## Fix
+For frame-quality keepsakes, both need to be fixed.
 
-Switch silhouette generation from "LLM writes SVG" to "image model draws a black silhouette PNG", then rasterize that PNG into the alpha mask the packer already consumes. The existing `buildMaskFromSvg` uses `<img>` + canvas, so it already works with any image source — we just give it a PNG data URL instead of an SVG string.
+## Plan
 
-### Steps
+### 1. Reliable, high-quality silhouettes (server-side, no browser key)
 
-1. **Add `callSilhouetteImage(description, style)` in `src/lib/gemini.ts`**
-   - Call `gemini-2.5-flash-image-preview` (Nano Banana) via `:generateContent` with a prompt like: *"Solid pure-black silhouette of {description}, centered on pure white background, no outlines, no shading, no text, no gradient, recognizable iconic pose, fills ~80% of frame, square 1:1."*
-   - Response includes `inlineData.data` (base64 PNG) — return as `data:image/png;base64,...`.
+- Move shape generation off the browser `VITE_GEMINI_API_KEY` (which is leaking + currently undefined) onto a **TanStack server route** `/api/generate-silhouette` that calls the Lovable AI Gateway image endpoint with `LOVABLE_API_KEY`.
+- Use `openai/gpt-image-2` (higher fidelity than `gemini-2.5-flash-image-preview`) with a tightened prompt: *pure black silhouette, plush-toy chunky proportions, instantly recognizable features (ears, snout, arms, legs for a bear), centered, 80% of frame, pure white background, no outline/text/shading*.
+- Return PNG as data URL; client already handles data URLs in `buildMaskFromSvg`.
+- Cache result per `(shape, style)` in `sessionStorage` so re-renders don't re-bill.
 
-2. **Generalize the mask builder** in `src/lib/wordPacker.ts`
-   - Rename/extend `buildMaskFromSvg` to `buildMaskFromImageSrc(src, maskSize)` accepting any image URL (svg data URL or png data URL). Threshold on luminance < 128 → mask=1. Keep the old name as a thin wrapper for backwards compatibility.
+### 2. Hand-crafted fallbacks that actually look like the subject
 
-3. **Update `src/routes/index.tsx`**
-   - Replace the three `callShapeGen(...)` call sites with `callSilhouetteImage(...)`.
-   - Store the returned PNG data URL in place of `shapeSvg`. Pass it to `buildMaskFromImageSrc`.
-   - Keep `FALLBACK_HEART_SVG` as the failure fallback (mask builder accepts both).
+Replace the generic two-circle `FALLBACK_BEAR_SVG` and the catch-all `FALLBACK_ANIMAL_SVG` with proper anatomically-shaped silhouettes (ears, muzzle, arms, legs, paws). Add real fallbacks for the common Grade-4 subjects (bear/teddy, dog, cat, horse, dolphin, unicorn, dragon, butterfly, rocket, etc.) so a Gateway failure still ships a frameable image.
 
-4. **No changes to the packer worker** — it already consumes a pre-rasterized `Uint8Array` mask.
+### 3. Strict mask containment (no words outside the outline)
 
-## Technical notes
+In `wordPacker.worker.ts`:
 
-- Endpoint: `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=...`
-- Request body uses `contents:[{parts:[{text: prompt}]}]` and `generationConfig:{ responseModalities:["IMAGE"] }`.
-- Parse: `data.candidates[0].content.parts[].inlineData.data` (base64). MIME is in `inlineData.mimeType`.
-- Image generation is slower (~3–6s) than text — keep the existing loading indicator; no new UI needed.
-- The API key already in `.env` (`VITE_GEMINI_API_KEY`) has access to the image preview model.
+- Replace the 3-point mask test with a **dense edge-sample test**: sample ~12 points around the word's bounding box perimeter + interior; all must be inside the mask.
+- Add a small **safety inset** (shrink each candidate box by ~2% before the mask test) so glyph ascenders/descenders don't poke out.
+- **Always enforce `mustBeInMask = true`** for every tier instead of `Math.random() < adherence`. Use `adherence` only to relax the inset (high adherence → larger inset, tighter pack; low adherence → smaller inset, more fill) — never to skip the mask test.
+- Drop words that can't fit after N attempts rather than placing them anywhere.
+
+### 4. Outline that holds the shape
+
+Keep the mask-derived outline added last turn, but make it slightly thicker (≈0.4% of canvas min-dim) and pure black so the framed print reads cleanly as a silhouette.
+
+### 5. Verify
+
+- Generate Abby (teddy bear), a dancer, a soccer kicker — confirm: recognizable shape, every word inside the outline, name centered and unclipped.
+- Render at print resolution and visually QA before declaring done.
+
+## Files touched
+
+- `src/routes/api/generate-silhouette.ts` (new server route)
+- `src/lib/gemini.ts` (call the server route instead of Gemini directly; rewrite fallback SVGs)
+- `src/lib/wordPacker.worker.ts` (dense mask test, always-on containment, inset by adherence)
+- `src/routes/index.tsx` (small wiring — outline thickness, cache)
 
 ## Out of scope
 
-- No change to word expansion, packing algorithm, name sizing, or color logic.
-- Not migrating to Lovable AI Gateway in this fix (separate concern).
-
-Once you approve, I'll switch to build mode and make the edits.
+- New shapes beyond the existing student roster.
+- UI/layout changes to the editor panel.
+- Migrating word-expansion call off `VITE_GEMINI_API_KEY` (separate concern; flag for a follow-up if you want it server-side too).
