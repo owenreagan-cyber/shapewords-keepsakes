@@ -357,8 +357,8 @@ function computePlacements(
     tier: 2 | 3 | 4 | 5,
     fontFamily: string,
     fontWeight: number,
+    seed?: { x: number; y: number } | null,
   ): boolean {
-    // 80/20 horizontal-vs-vertical for tier 3+; tier 2 stays horizontal for legibility.
     const allowRotate = tier >= 3;
     const angle = allowRotate && Math.random() < 0.2 ? Math.PI / 2 : 0;
     const tw = measureWord(word, fontSize, fontFamily, fontWeight);
@@ -366,24 +366,25 @@ function computePlacements(
     const bw = angle ? th : tw;
     const bh = angle ? tw : th;
 
-    const startR = shapeMin * (1 - opts.centerBias / 100) * 0.1;
+    // Distributed seeding: each word starts at an empty-region seed (not
+    // canvas center), so torsos don't hog space while arms/legs stay empty.
+    const ox = seed?.x ?? cx;
+    const oy = seed?.y ?? cy;
+
+    const startR = Math.max(2, fontSize * 0.3);
     const maxR = Math.max(bboxW, bboxH);
-    // Smaller search step → denser sampling along the spiral.
     const step = Math.max(1, fontSize * 0.08 * (1 + randomness));
-    const maxAttempts = tier === 5 ? 1500 : tier === 4 ? 2500 : 3500;
+    const maxAttempts = tier === 5 ? 900 : tier === 4 ? 1800 : 3000;
     let r = startR;
     let theta = Math.random() * Math.PI * 2;
 
-    // Tight inter-word padding — small absolute floor so micro-words can
-    // mortar into gaps between larger words.
     const pad = Math.max(0.5, Math.min(fontSize * 0.08, 1 + fontSize * 0.02 * adherence));
 
     for (let i = 0; i < maxAttempts; i++) {
-      const x = cx + Math.cos(theta) * r;
-      const y = cy + Math.sin(theta) * r;
+      const x = ox + Math.cos(theta) * r;
+      const y = oy + Math.sin(theta) * r;
       const box: Box = { x: x - bw / 2, y: y - bh / 2, w: bw, h: bh };
 
-      // Canvas bounds with EDGE_PAD
       if (
         box.x < EDGE_PAD ||
         box.y < EDGE_PAD ||
@@ -405,6 +406,7 @@ function computePlacements(
         grid.add(box);
         placements.push({ x, y, word, fontSize, color, angle, fontFamily, fontWeight });
         trackPlacement(word, box, color);
+        markBoxOcc(box);
         placedTotal++;
         placedInsideMask++;
         return true;
@@ -416,6 +418,27 @@ function computePlacements(
       if (r > maxR) r = startR + Math.random() * 20;
     }
     return false;
+  }
+
+  // Try multiple seeds before giving up (gap-filling).
+  function placeWithSeeds(
+    word: string,
+    fontSize: number,
+    color: string,
+    tier: 2 | 3 | 4 | 5,
+    fontFamily: string,
+    fontWeight: number,
+    seedAttempts = 4,
+    preferLarge = false,
+  ): boolean {
+    for (let s = 0; s < seedAttempts; s++) {
+      const seed = preferLarge && s === 0
+        ? pickLargestEmptySeed()
+        : pickEmptySeed();
+      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed)) return true;
+    }
+    // Final fallback: center spiral.
+    return place(word, fontSize, color, tier, fontFamily, fontWeight, null);
   }
 
   // --- Tier 1: name, locked to center, registered FIRST ---
