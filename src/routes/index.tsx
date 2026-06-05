@@ -456,10 +456,10 @@ function ShapeWordsApp() {
       const nextConfig: Config = {
         ...config,
         etsyMode: true,
-        emphasis: 4,
+        emphasis: 3,
         density: 100,
-        scaling: 22,
-        adherence: 95,
+        scaling: 14,
+        adherence: 92,
         centerBias: 85,
         rotation: 15,
         randomness: 10,
