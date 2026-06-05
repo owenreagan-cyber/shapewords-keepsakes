@@ -1,52 +1,61 @@
 ## Goal
 
-Tighten `src/lib/wordPacker.worker.ts` so output is dense, legible, and strictly contained — no bleed, clear hierarchy, palette-driven color.
+Replace the single "Generate Best Possible Design" button with a two-step flow the user controls explicitly, harden the word filter for a Grade-4 classroom, drive color from the student's theme, and ship a true 5×10 @ 300 DPI JPG export.
 
-## Changes
+## UI changes (`src/routes/index.tsx`)
 
-### 1. Strict boundary adherence (`boxInsideMask`)
-- Replace the 5×3 grid sample with a **four-corner test + perimeter sweep**: all 4 corners of the (inset) bbox MUST be `1` in the mask, plus 8 midpoint samples along the perimeter. Any miss → reject and continue the spiral.
-- Add a fixed **edge margin** `EDGE_PAD = max(2px, minDim * 0.006)` shrinking every candidate box before the mask test, so glyphs never touch the silhouette edge.
-- Keep the adherence-driven inset, but floor it at `EDGE_PAD`.
-- Remove the canvas-boundary `< 4` check in favor of the unified `EDGE_PAD`.
+Replace the single amber button in the AI Optimizer section with two stacked buttons (and keep Etsy Mode toggle above them):
 
-### 2. Anchored placement & hierarchy
-- **Tier 1 (name)**: lock to `(cx, cy)`, register its bbox in the grid FIRST (already done — verify ordering so no tier-2 word is placed before the name bbox is added).
-- **Tier 2 (score ≥ 85)**: large multiplier — bump from `0.04·h` baseline to `0.05–0.065·h · scaleMul · emphasisMul`.
-- **Tier 3 (40–84)**: medium, `~0.022·h`.
-- **Tier 4 (10–39)**: small, `~0.013·h`.
-- **Tier 5 (<50 pool)**: micro-filler, see §3.
-- Sort by `importanceScore` desc (already done) — keep name forced to front.
+1. **"Generate Words"** (primary, amber)
+   - Calls Gemini word expansion only (no re-pack, no layout tweaks).
+   - Runs the school-appropriate filter on the returned list before storing in `words` state.
+   - Status: "Generating school-safe words…".
+   - On success: re-pack once with current config so the canvas reflects the new vocabulary.
 
-### 3. Density & direction
-- Keep Archimedean spiral with `GOLDEN_ANGLE` from center outward.
-- **Rotation rule**: replace `rotChance` with a hard **80/20 split** — exactly 0° or 90°, no diagonals. Tier 1 + Tier 2 stay horizontal-only.
-- **Tier 5 mortar**:
-  - Min font floor **8pt** (absolute, not ratio).
-  - Loop up to **400 attempts per word** shrinking from `0.012·h` down to 8pt in steps.
-  - Drop early-exit (`if (!ok && i > 100) break`) so the algorithm keeps hunting gaps.
-  - Always-on mask containment (already in place).
+2. **"Best Framable Settings"** (secondary, dark)
+   - Does NOT call Gemini. Operates on whatever words are currently loaded (seed or generated).
+   - Forces a known-good config for legibility + density:
+     - `etsyMode: true, emphasis: 4, density: 100, scaling: 22, adherence: 95, centerBias: 85, rotation: 15, randomness: 10`
+     - `fontFamily`: pick from a theme map (sports → "Bebas Neue", dance → "Cormorant", boy → "Archivo Black", girl → "Outfit", default keeps current).
+   - Builds a **3-color palette** matched to the theme/shape (see below), passes it as `palette` override into the render.
+   - Re-packs up to 3 attempts, keeps highest `coverage + balanceScore`, then renders the winner once (clears canvas first).
 
-### 4. Color application from palette
-- Accept the existing `primaryColor` / `accentColor` and add optional `palette: string[]` (ordered dark → light) through `PackOptions`. If absent, derive a 3-stop palette from `[primary, accent, mix(primary, bg, 0.55)]`.
-- Tier 1 + Tier 2 → darkest/most vibrant entries (`palette[0]`, occasional `palette[1]` accent).
-- Tier 3 → mix of `palette[0]` and `palette[1]`.
-- Tier 4 → `palette[1]` dominant.
-- Tier 5 micro-fillers → `palette[2]` (lightest), so they read as texture, never compete.
-- Contrast guard: if a chosen color ≈ `bgColor`, fall back to `primary`.
+The existing `handleGenerate` becomes two functions: `handleGenerateWords` and `handleBestSettings`. The 4-attempt refinement loop moves into `handleBestSettings`.
 
-## Files
+## School-appropriate filter (`src/lib/gemini.ts`)
 
-- `src/lib/wordPacker.worker.ts` — boundary test, EDGE_PAD, tier sizing, 80/20 rotation, mortar loop, palette-tier color picker.
-- `src/lib/wordPacker.ts` — extend `PackOptions` with optional `palette?: string[]`.
-- `src/routes/index.tsx` — pass the active student's theme palette into `PackOptions.palette` (no UI change).
+Add a `BANNED_WORDS` set covering appearance/romantic/age-inappropriate terms (e.g. `cute, beautiful, sexy, hot, pretty, gorgeous, attractive, handsome, adorable, lovely`, plus any word with `love` outside `loving/loved/lovable` … finalized list in code). Export `sanitizeWords(entries)` that lowercases & filters, drops banned exact matches and substrings of banned roots, and ensures the student name survives. Apply it inside `callWordExpansion` before returning, AND in the route after seed expansion.
+
+## Theme-driven 3-color palette
+
+Add a helper in `src/lib/students.ts` (or a new `src/lib/themePalettes.ts`) that returns `[dark, mid, accent]` keyed by theme keywords:
+
+- **Sports / Athletics / Energy / Leadership** → `["#0A0A0A", "#1E40AF", "#DC2626"]` (black + navy + red)
+- **Dance / Performance / Artistic / Joy** → `["#1A0B2E", "#7C3AED", "#EC4899"]` (plum + violet + pink)
+- **Boy themes (Adventure, Loyalty, default male shape)** → `["#0F172A", "#1E3A8A", "#F59E0B"]` (slate + navy + amber)
+- **Girl themes (Warm Kindness, Elegance, Joy)** → `["#1F1147", "#9333EA", "#F472B6"]` (deep purple + violet + rose)
+- Fallback: current `student.colorPalette` + `mix(primary, bg, 0.55)`.
+
+`handleBestSettings` calls this helper, then passes the resulting array as `palette` through the existing `PackOptions.palette` field (already wired into the worker).
+
+## 5×10 @ 300 DPI export (`src/routes/index.tsx`)
+
+- Update `EXPORT_RES.tall` label to `"1500x3000px (5x10 @ 300 DPI)"` and set `w: 1500, h: 3000`.
+- Add `ORIENTATION_OUTPUT_RES_5x10 = { portrait: { w: 1500, h: 3000 }, landscape: { w: 3000, h: 1500 } }`.
+- `handleDownload`:
+  - Render to `5x10` size by orientation.
+  - Export as JPEG quality `0.95`.
+  - Filename: `${nameField}_WordArt_5x10_300dpi.jpg`.
+- Leave existing 8×10 preset available in the resolution dropdown; the download button always uses 5×10 per the request.
 
 ## Out of scope
 
-- Silhouette generation route, fallback SVGs, outline thickness (already handled).
-- New UI controls; tier thresholds remain as-is.
-- Word-expansion / Gemini call site.
+- Worker packer internals (already tuned in the previous turn).
+- Silhouette generation route.
+- New sliders or preset entries.
 
 ## Verify
 
-Render Abby (teddy bear) and one athletic-theme student: confirm name centered, no word crosses the outline, tier-5 words visibly fill gaps in a lighter shade, no diagonal text.
+- Click "Generate Words" → words list refreshes, no `cute/beautiful/sexy` present, canvas re-packs with current settings.
+- Click "Best Framable Settings" on a sports student → palette goes black/navy/red, name centered ~10% canvas, no glyph crossing the outline, minimal white space.
+- Click "Download" → file is `*_5x10_300dpi.jpg`, 1500×3000 (portrait), opens in Preview at 5"×10" @ 300 DPI.
