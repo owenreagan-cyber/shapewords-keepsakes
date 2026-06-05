@@ -200,7 +200,8 @@ function computePlacements(
   const palette = buildPalette(opts);
   const bodyFont = opts.bodyFontFamily ?? opts.fontFamily;
   const nameFont = opts.nameFontFamily ?? opts.fontFamily;
-  const grid = new Grid(Math.max(20, shapeMin / 40));
+  // Finer collision grid → tighter packing between neighbors.
+  const grid = new Grid(Math.max(10, shapeMin / 70));
 
   const etsy = !!opts.etsyMode;
   const scaleMul = 1 + (opts.scaling - 10) / 40;
