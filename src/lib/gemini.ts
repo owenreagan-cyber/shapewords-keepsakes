@@ -240,8 +240,7 @@ function getDeterministicShapeSvg(shapeDescription: string): string | null {
   const normalized = shapeDescription.toLowerCase();
   if (/(teddy|red panda|bear)/.test(normalized)) return FALLBACK_BEAR_SVG;
   if (/(cheerleader|pom-?pom|pom pom|cheer)/.test(normalized)) return FALLBACK_CHEERLEADER_SVG;
-  if (/(dancer|dance|ballet|gymnast|tumbling|leaping)/.test(normalized))
-    return FALLBACK_DANCER_SVG;
+  if (/(dancer|dance|ballet|gymnast|tumbling|leaping)/.test(normalized)) return FALLBACK_DANCER_SVG;
   if (/(game controller|controller|gamepad|video game)/.test(normalized))
     return FALLBACK_CONTROLLER_SVG;
   if (/(helmet)/.test(normalized)) return FALLBACK_HELMET_SVG;
@@ -253,8 +252,7 @@ export function getFallbackShapeSvg(shapeDescription: string): string {
 
   if (/(teddy|red panda|bear)/.test(normalized)) return FALLBACK_BEAR_SVG;
   if (/(cheerleader|pom-?pom|pom pom|cheer)/.test(normalized)) return FALLBACK_CHEERLEADER_SVG;
-  if (/(dancer|dance|ballet|gymnast|tumbling|leaping)/.test(normalized))
-    return FALLBACK_DANCER_SVG;
+  if (/(dancer|dance|ballet|gymnast|tumbling|leaping)/.test(normalized)) return FALLBACK_DANCER_SVG;
   if (/(eagle|bird|wing|flying)/.test(normalized)) return FALLBACK_BIRD_SVG;
   if (/(dog|horse|gallop|cat|fox|wolf|panda)/.test(normalized)) return FALLBACK_ANIMAL_SVG;
   if (/(snake|serpent)/.test(normalized)) return FALLBACK_SNAKE_SVG;
