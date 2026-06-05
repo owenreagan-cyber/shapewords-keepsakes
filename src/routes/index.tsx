@@ -647,6 +647,22 @@ function ShapeWordsApp() {
                 options={SILHOUETTE_STYLES}
               />
             </Field>
+            <Field label="Outline Mode">
+              <Select
+                value={config.outlineMode}
+                onChange={(v) =>
+                  setConfig((c) => ({
+                    ...c,
+                    outlineMode: v as Config["outlineMode"],
+                  }))
+                }
+                options={[
+                  "invisible",
+                  "thin",
+                  "decorative",
+                ]}
+              />
+            </Field>
           </Section>
 
           <Section title="Student Data">
