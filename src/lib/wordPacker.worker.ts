@@ -6,6 +6,7 @@ import type {
   WordPackerWorkerRequest,
   WordPackerWorkerResponse,
 } from "./wordPacker";
+import { segmentRegions, type PixelSet, type ShapeRegions } from "./shapeRegions";
 
 interface Box {
   x: number;
@@ -13,8 +14,6 @@ interface Box {
   w: number;
   h: number;
 }
-
-type PixelSet = number[];
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
@@ -433,6 +432,7 @@ function computePlacements(
   const contourDistanceField = buildSignedDistanceField(inMask, OG);
   const contourBand: PixelSet = [];
   const interiorCells: PixelSet = [];
+  const shapeRegions = segmentRegions(inMask, OG);
   const contourBandRadiusPx = 8;
   const pxPerCell = (cellW + cellH) * 0.5;
   for (let i = 0; i < OG * OG; i++) {
@@ -511,37 +511,17 @@ function computePlacements(
     return pickEmptySeed();
   }
 
-  function pickRegionSeed(region: "left" | "right" | "top" | "bottom"): {
+  function pickRegionSeed(region: keyof ShapeRegions): {
     x: number;
     y: number;
   } | null {
-    const inRegion = (index: number) => {
-      const ix = index % OG;
-      const iy = Math.floor(index / OG);
-      if (region === "left" && ix > OG * 0.5) return false;
-      if (region === "right" && ix < OG * 0.5) return false;
-      if (region === "top" && iy > OG * 0.5) return false;
-      if (region === "bottom" && iy < OG * 0.5) return false;
-      return true;
-    };
-
+    const regionCells = shapeRegions[region];
     for (let t = 0; t < 120; t++) {
-      const i = interiorCells[Math.floor(Math.random() * Math.max(1, interiorCells.length))];
-      if (i == null || !inRegion(i) || !isEmptyCell(i)) continue;
+      const i = regionCells[Math.floor(Math.random() * Math.max(1, regionCells.length))];
+      if (i == null || !isEmptyCell(i)) continue;
       return cellToSeed(i);
     }
-    for (let t = 0; t < 120; t++) {
-      const i = contourBand[Math.floor(Math.random() * Math.max(1, contourBand.length))];
-      if (i == null || !inRegion(i) || !isEmptyCell(i)) continue;
-      return cellToSeed(i);
-    }
-    for (let t = 0; t < 180; t++) {
-      const i = Math.floor(Math.random() * OG * OG);
-      if (!isEmptyCell(i)) continue;
-      if (!inRegion(i)) continue;
-      return cellToSeed(i);
-    }
-    return null;
+    return pickInteriorSeed() ?? pickContourSeed(contourBand) ?? pickEmptySeed();
   }
 
   const palette = buildPalette(opts);
@@ -886,7 +866,10 @@ function computePlacements(
       const preferTop = bottomWeight > topWeight;
       const balancingWords = pool.slice(0, 40);
       for (let b = 0; b < balancingWords.length; b++) {
-        const region = b % 2 === 0 ? (preferLeft ? "left" : "right") : preferTop ? "top" : "bottom";
+        const region: keyof ShapeRegions =
+          b % 2 === 0
+            ? (preferLeft ? "leftArm" : "rightArm")
+            : (preferTop ? "head" : (b % 4 === 1 ? "leftLeg" : "rightLeg"));
         const seed = pickRegionSeed(region) ?? pickEmptySeed();
         const fs = shapeH * 0.008;
         if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed, false)) {
