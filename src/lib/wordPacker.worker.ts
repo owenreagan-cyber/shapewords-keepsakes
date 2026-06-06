@@ -15,6 +15,15 @@ interface Box {
   h: number;
 }
 
+type RegionKey = keyof ShapeRegions;
+
+interface RegionCoverage {
+  region: RegionKey;
+  total: number;
+  filled: number;
+  ratio: number;
+}
+
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 function maskAt(mask: Uint8Array, maskSize: number, nx: number, ny: number): boolean {
@@ -475,6 +484,61 @@ function computePlacements(
     else interiorCells.push(i);
   }
 
+  function computeRegionCoverage(): RegionCoverage[] {
+    const regions: RegionKey[] = ["head", "torso", "leftArm", "rightArm", "leftLeg", "rightLeg"];
+    return regions
+      .map((region) => {
+        const cells = shapeRegions[region];
+        let total = 0;
+        let filled = 0;
+        for (const i of cells) {
+          if (inMask[i] !== 1) continue;
+          total++;
+          if (occupied[i] === 1) filled++;
+        }
+        return {
+          region,
+          total,
+          filled,
+          ratio: total === 0 ? 0 : filled / total,
+        };
+      })
+      .filter((entry) => entry.total > 0);
+  }
+
+  function getSparseRegions(targetRatio = 0.34): RegionCoverage[] {
+    return computeRegionCoverage()
+      .filter((entry) => entry.ratio < targetRatio)
+      .sort((a, b) => a.ratio - b.ratio || b.total - a.total);
+  }
+
+  function collectRowRuns(
+    row: number,
+  ): Array<{ start: number; end: number; center: number; width: number }> {
+    if (row < 0 || row >= OG) return [];
+    const runs: Array<{ start: number; end: number; center: number; width: number }> = [];
+    let start = -1;
+    for (let x = 0; x <= OG; x++) {
+      const active = x < OG ? inMask[row * OG + x] === 1 : false;
+      if (active && start < 0) {
+        start = x;
+        continue;
+      }
+      if (!active && start >= 0) {
+        const end = x - 1;
+        const widthCells = end - start + 1;
+        runs.push({
+          start,
+          end,
+          center: (start + end + 1) * 0.5,
+          width: widthCells * cellW,
+        });
+        start = -1;
+      }
+    }
+    return runs;
+  }
+
   function markBoxOcc(box: Box) {
     const cx0 = Math.max(0, Math.floor(box.x / cellW));
     const cy0 = Math.max(0, Math.floor(box.y / cellH));
@@ -555,6 +619,42 @@ function computePlacements(
       return cellToSeed(i);
     }
     return pickInteriorSeed() ?? pickContourSeed(contourBand) ?? pickEmptySeed();
+  }
+
+  function buildNameAnchors(): Array<{ x: number; y: number; maxWidth: number }> {
+    const candidateRows = new Set<number>();
+    const pushRow = (value: number) => {
+      candidateRows.add(clamp(Math.round(value), 0, OG - 1));
+    };
+    pushRow((cy / height) * OG);
+    pushRow((mnY + (mxY - mnY) * 0.42) * (OG / maskSize));
+    pushRow((mnY + (mxY - mnY) * 0.5) * (OG / maskSize));
+    pushRow((mnY + (mxY - mnY) * 0.58) * (OG / maskSize));
+
+    const torsoRows = new Set<number>();
+    for (const cell of shapeRegions.torso) torsoRows.add(Math.floor(cell / OG));
+    for (const row of torsoRows) {
+      pushRow(row);
+      pushRow(row - 2);
+      pushRow(row + 2);
+    }
+
+    const anchors = [...candidateRows]
+      .flatMap((row) =>
+        collectRowRuns(row).map((run) => ({
+          x: run.center * cellW,
+          y: (row + 0.5) * cellH,
+          maxWidth: Math.max(0, run.width - cellW * 2),
+          score:
+            run.width -
+            Math.abs(run.center * cellW - cx) * 0.65 -
+            Math.abs((row + 0.5) * cellH - cy) * 0.45,
+        })),
+      )
+      .filter((anchor) => anchor.maxWidth > cellW * 6)
+      .sort((a, b) => b.score - a.score);
+
+    return anchors.map(({ x, y, maxWidth }) => ({ x, y, maxWidth }));
   }
 
   const palette = buildPalette(opts);
@@ -770,27 +870,75 @@ function computePlacements(
   // Reference-art sizing: ~10% of SILHOUETTE height, with small emphasis nudge.
   const targetNameSize =
     shapeH * ((etsy ? 0.085 : 0.1) + 0.01 * Math.min(1, Math.max(-1, emphasisMul - 1))) * scaleMul;
-  const maxNameWidth = bboxW * 0.55;
+  const nameAnchors = buildNameAnchors();
+  const fallbackNameWidth = bboxW * 0.42;
   let nameSize = targetNameSize;
   if (nameText) {
-    let measured = measureWord(nameText, nameSize, nameFont, 800);
-    if (measured > maxNameWidth) nameSize = nameSize * (maxNameWidth / measured);
     const minNameSize = Math.max(18, shapeH * 0.05);
-    if (nameSize < minNameSize) nameSize = minNameSize;
-    measured = measureWord(nameText, nameSize, nameFont, 800);
-    const nameBox: Box = {
-      x: cx - measured / 2 - 6,
-      y: cy - nameSize / 2 - 4,
-      w: measured + 12,
-      h: nameSize + 8,
-    };
+    let bestNamePlacement: {
+      x: number;
+      y: number;
+      fontSize: number;
+      box: Box;
+    } | null = null;
+    const candidateAnchors = [...nameAnchors, { x: cx, y: cy, maxWidth: fallbackNameWidth }];
+    for (const anchor of candidateAnchors) {
+      let candidateSize = targetNameSize;
+      let measured = measureWord(nameText, candidateSize, nameFont, 800);
+      const allowedWidth = anchor.maxWidth > 0 ? anchor.maxWidth : fallbackNameWidth;
+      if (measured > allowedWidth) candidateSize *= allowedWidth / measured;
+      while (candidateSize >= minNameSize) {
+        measured = measureWord(nameText, candidateSize, nameFont, 800);
+        const candidateBox: Box = {
+          x: anchor.x - measured / 2 - 6,
+          y: anchor.y - candidateSize / 2 - 4,
+          w: measured + 12,
+          h: candidateSize + 8,
+        };
+        const namePad = Math.max(0.5, Math.min(2, candidateSize * 0.025));
+        if (boxInsideMask(frameMask, maskSize, candidateBox, width, height, namePad)) {
+          if (!bestNamePlacement || candidateSize > bestNamePlacement.fontSize) {
+            bestNamePlacement = {
+              x: anchor.x,
+              y: anchor.y,
+              fontSize: candidateSize,
+              box: candidateBox,
+            };
+          }
+          break;
+        }
+        candidateSize *= 0.94;
+      }
+    }
+
+    if (!bestNamePlacement) {
+      let measured = measureWord(nameText, nameSize, nameFont, 800);
+      const allowedWidth = Math.max(fallbackNameWidth, bboxW * 0.35);
+      if (measured > allowedWidth) nameSize = nameSize * (allowedWidth / measured);
+      if (nameSize < minNameSize) nameSize = minNameSize;
+      measured = measureWord(nameText, nameSize, nameFont, 800);
+      bestNamePlacement = {
+        x: cx,
+        y: cy,
+        fontSize: nameSize,
+        box: {
+          x: cx - measured / 2 - 6,
+          y: cy - nameSize / 2 - 4,
+          w: measured + 12,
+          h: nameSize + 8,
+        },
+      };
+    }
+
+    nameSize = bestNamePlacement.fontSize;
+    const nameBox = bestNamePlacement.box;
     grid.add(nameBox);
     markBoxOcc(nameBox);
     const nameColor = palette.dark;
     placements.push({
       word: nameText,
-      x: cx,
-      y: cy,
+      x: bestNamePlacement.x,
+      y: bestNamePlacement.y,
       fontSize: nameSize,
       color: nameColor,
       angle: 0,
@@ -852,8 +1000,9 @@ function computePlacements(
     let cycle = 0;
     while (i < HARD_CAP && cycle < MAX_RECOVERY_CYCLES) {
       const coverageNow = maskCellCount === 0 ? 1 : occupiedCount / maskCellCount;
+      const sparseRegions = getSparseRegions();
       if (coverageNow >= occupancyMax) break;
-      if (coverageNow >= occupancyTarget) break;
+      if (coverageNow >= occupancyTarget && sparseRegions.length === 0) break;
       let cyclePlacements = 0;
 
       // 1) Detect emptier regions and fill with small contour-aware words.
@@ -904,18 +1053,20 @@ function computePlacements(
       // 3) Rebalance composition across lighter regions.
       const preferLeft = rightWeight > leftWeight;
       const preferTop = bottomWeight > topWeight;
+      const prioritizedRegions = [
+        ...sparseRegions.map((entry) => entry.region),
+        ...(preferTop ? (["head", "leftArm", "rightArm"] as RegionKey[]) : []),
+        ...(preferLeft ? (["leftArm", "leftLeg"] as RegionKey[]) : ["rightArm", "rightLeg"]),
+        "torso",
+        "leftArm",
+        "rightArm",
+        "head",
+        "leftLeg",
+        "rightLeg",
+      ].filter((region, index, arr) => arr.indexOf(region) === index);
       const balancingWords = pool.slice(0, 40);
       for (let b = 0; b < balancingWords.length; b++) {
-        const region: keyof ShapeRegions =
-          b % 2 === 0
-            ? preferLeft
-              ? "leftArm"
-              : "rightArm"
-            : preferTop
-              ? "head"
-              : b % 4 === 1
-                ? "leftLeg"
-                : "rightLeg";
+        const region = prioritizedRegions[b % prioritizedRegions.length] ?? "torso";
         const seed = pickRegionSeed(region) ?? pickEmptySeed();
         const fs = shapeH * 0.008;
         if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed, false)) {
@@ -1007,7 +1158,15 @@ function computePlacements(
     }
   }
   const contourProfileScore = edgeUnion === 0 ? 0 : edgeInter / edgeUnion;
-  const regionOccupancyScore =
+  const regionCoverage = computeRegionCoverage();
+  const regionTarget = Math.max(0.28, occupancyMin * 0.42);
+  const regionScores = regionCoverage.map((entry) => clamp(entry.ratio / regionTarget, 0, 1));
+  const weakestRegionScore = regionScores.length > 0 ? Math.min(...regionScores) : 1;
+  const averageRegionScore =
+    regionScores.length > 0
+      ? regionScores.reduce((sum, score) => sum + score, 0) / regionScores.length
+      : 1;
+  const globalCoverageScore =
     coverage >= occupancyMin && coverage <= occupancyTarget
       ? 1
       : coverage > occupancyTarget && coverage <= occupancyMax
@@ -1017,6 +1176,11 @@ function computePlacements(
             1,
           )
         : clamp(coverage / occupancyMin, 0, 1);
+  const regionOccupancyScore = clamp(
+    averageRegionScore * 0.6 + weakestRegionScore * 0.25 + globalCoverageScore * 0.15,
+    0,
+    1,
+  );
   const iou = union === 0 ? 0 : inter / union;
   const silhouetteSimilarity = clamp(
     iou * 0.35 +
