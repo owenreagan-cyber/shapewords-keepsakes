@@ -146,7 +146,8 @@ export function segmentRegions(mask: Uint8Array, width: number, height = width):
   const fallbackCenter = (minX + maxX) * 0.5;
   const fallbackHalfWidth = Math.max(2, (maxX - minX + 1) * 0.25);
   const torsoCenterX = torsoRows > 0 ? torsoCenterSum / torsoRows : fallbackCenter;
-  const torsoHalfWidth = torsoRows > 0 ? Math.max(2, (torsoHalfWidthSum / torsoRows) * 0.75) : fallbackHalfWidth;
+  const torsoHalfWidth =
+    torsoRows > 0 ? Math.max(2, (torsoHalfWidthSum / torsoRows) * 0.75) : fallbackHalfWidth;
 
   const headCandidates = makeCandidateMask(mask, width, height, (_, y) => y <= headCut);
   const torsoCandidates = makeCandidateMask(mask, width, height, (x, y) => {
@@ -161,8 +162,18 @@ export function segmentRegions(mask: Uint8Array, width: number, height = width):
     if (y < armTop || y > armBottom) return false;
     return x > torsoCenterX + torsoHalfWidth * 0.85;
   });
-  const leftLegCandidates = makeCandidateMask(mask, width, height, (x, y) => y >= legTop && x <= torsoCenterX);
-  const rightLegCandidates = makeCandidateMask(mask, width, height, (x, y) => y >= legTop && x > torsoCenterX);
+  const leftLegCandidates = makeCandidateMask(
+    mask,
+    width,
+    height,
+    (x, y) => y >= legTop && x <= torsoCenterX,
+  );
+  const rightLegCandidates = makeCandidateMask(
+    mask,
+    width,
+    height,
+    (x, y) => y >= legTop && x > torsoCenterX,
+  );
 
   const head = largestConnectedComponent(headCandidates, mask, width, height);
   const torso = largestConnectedComponent(torsoCandidates, mask, width, height);
