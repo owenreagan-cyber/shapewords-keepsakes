@@ -144,10 +144,10 @@ function defaultConfig(s: Student): Config {
     invisibleShapeMode: true,
     silhouetteSimilarityThreshold: 0.9,
     occupancyMin: 0.88,
-    occupancyTarget: 0.92,
-    occupancyMax: 0.95,
+    occupancyTarget: 0.9,
+    occupancyMax: 0.94,
     canvasHeightFillMin: 0.7,
-    canvasHeightFillMax: 0.85,
+    canvasHeightFillMax: 0.8,
   };
 }
 
