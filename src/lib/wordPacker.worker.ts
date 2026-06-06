@@ -242,12 +242,12 @@ function distanceTransform1D(values: Float32Array, length: number): Float32Array
   for (let q = firstFinite + 1; q < length; q++) {
     if (values[q] >= DISTANCE_FIELD_INF) continue;
     let s =
-      ((values[q] + q * q) - (values[vertices[k]] + vertices[k] * vertices[k])) /
+      (values[q] + q * q - (values[vertices[k]] + vertices[k] * vertices[k])) /
       (2 * q - 2 * vertices[k]);
     while (k > 0 && s <= intersections[k]) {
       k--;
       s =
-        ((values[q] + q * q) - (values[vertices[k]] + vertices[k] * vertices[k])) /
+        (values[q] + q * q - (values[vertices[k]] + vertices[k] * vertices[k])) /
         (2 * q - 2 * vertices[k]);
     }
     k++;
