@@ -94,7 +94,10 @@ function parseExpansionLoose(text: string): ExpansionResponse | null {
         else if (c === "{") depth++;
         else if (c === "}") {
           depth--;
-          if (depth === 0) { j++; break; }
+          if (depth === 0) {
+            j++;
+            break;
+          }
         }
       }
       if (depth !== 0) break; // incomplete trailing object
@@ -144,13 +147,53 @@ Return ONLY JSON matching:
 
 // School-appropriate filter: drops appearance / romantic / age-inappropriate words.
 const BANNED_EXACT = new Set<string>([
-  "cute","beautiful","sexy","hot","pretty","gorgeous","attractive","handsome",
-  "adorable","lovely","stunning","ugly","fat","skinny","thin","slim","tall","short",
-  "love","loves","crush","kiss","kissing","date","dating","boyfriend","girlfriend",
-  "hate","hates","stupid","dumb","idiot","loser","mean","cruel","bossy",
-  "babe","baby","hottie","cool-looking","fit","muscular","busty","curvy","slender",
+  "cute",
+  "beautiful",
+  "sexy",
+  "hot",
+  "pretty",
+  "gorgeous",
+  "attractive",
+  "handsome",
+  "adorable",
+  "lovely",
+  "stunning",
+  "ugly",
+  "fat",
+  "skinny",
+  "thin",
+  "slim",
+  "tall",
+  "short",
+  "love",
+  "loves",
+  "crush",
+  "kiss",
+  "kissing",
+  "date",
+  "dating",
+  "boyfriend",
+  "girlfriend",
+  "hate",
+  "hates",
+  "stupid",
+  "dumb",
+  "idiot",
+  "loser",
+  "mean",
+  "cruel",
+  "bossy",
+  "babe",
+  "baby",
+  "hottie",
+  "cool-looking",
+  "fit",
+  "muscular",
+  "busty",
+  "curvy",
+  "slender",
 ]);
-const BANNED_ROOTS = ["sexi","kiss","crush","babe","hottie","muscle","model-like"];
+const BANNED_ROOTS = ["sexi", "kiss", "crush", "babe", "hottie", "muscle", "model-like"];
 
 export function sanitizeWords<T extends { word: string }>(entries: T[], keepName?: string): T[] {
   const keep = (keepName || "").toLowerCase();
@@ -160,7 +203,10 @@ export function sanitizeWords<T extends { word: string }>(entries: T[], keepName
     const w = (e.word || "").trim().toLowerCase();
     if (!w) continue;
     if (w === keep) {
-      if (!seen.has(w)) { seen.add(w); out.push(e); }
+      if (!seen.has(w)) {
+        seen.add(w);
+        out.push(e);
+      }
       continue;
     }
     if (BANNED_EXACT.has(w)) continue;
@@ -171,7 +217,6 @@ export function sanitizeWords<T extends { word: string }>(entries: T[], keepName
   }
   return out;
 }
-
 
 // Server-route-backed silhouette generation. Uses Lovable AI Gateway (gpt-image-2).
 // Falls back to local deterministic SVGs when the route or gateway fails.

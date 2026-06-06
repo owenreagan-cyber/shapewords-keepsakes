@@ -44,7 +44,10 @@ function boxInsideMask(
   const mx = x0 + w / 2;
   const my = y0 + h / 2;
   const pts: Array<[number, number]> = [
-    [x0, y0], [x1, y0], [x0, y1], [x1, y1],
+    [x0, y0],
+    [x1, y0],
+    [x0, y1],
+    [x1, y1],
     [mx, my],
   ];
   for (const [px, py] of pts) {
@@ -122,18 +125,30 @@ function hexToRgb(hex: string): [number, number, number] | null {
   const m = hex.trim().match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
   if (!m) return null;
   let h = m[1];
-  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  if (h.length === 3)
+    h = h
+      .split("")
+      .map((c) => c + c)
+      .join("");
   const n = parseInt(h, 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 function rgbToHex(r: number, g: number, b: number): string {
-  const c = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, "0");
+  const c = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
 function mix(a: string, b: string, t: number): string {
-  const ra = hexToRgb(a), rb = hexToRgb(b);
+  const ra = hexToRgb(a),
+    rb = hexToRgb(b);
   if (!ra || !rb) return a;
-  return rgbToHex(ra[0] + (rb[0] - ra[0]) * t, ra[1] + (rb[1] - ra[1]) * t, ra[2] + (rb[2] - ra[2]) * t);
+  return rgbToHex(
+    ra[0] + (rb[0] - ra[0]) * t,
+    ra[1] + (rb[1] - ra[1]) * t,
+    ra[2] + (rb[2] - ra[2]) * t,
+  );
 }
 function luminance(hex: string): number {
   const rgb = hexToRgb(hex);
@@ -339,12 +354,20 @@ function buildSignedDistanceField(mask: Uint8Array, width: number, height = widt
   return { width, height, insideDistance, outsideDistance, contourPixels };
 }
 
-function buildPalette(opts: PackOptions): { dark: string; mid: string; light: string; accent: string } {
+function buildPalette(opts: PackOptions): {
+  dark: string;
+  mid: string;
+  light: string;
+  accent: string;
+} {
   const primary = opts.primaryColor ?? "#000000";
   const accent = opts.accentColor;
   const bg = opts.bgColor ?? "#FFFFFF";
-  const src = (opts.palette && opts.palette.length > 0 ? opts.palette : [primary, accent, mix(primary, bg, 0.55)])
-    .filter((c) => hexToRgb(c));
+  const src = (
+    opts.palette && opts.palette.length > 0
+      ? opts.palette
+      : [primary, accent, mix(primary, bg, 0.55)]
+  ).filter((c) => hexToRgb(c));
   // sort dark → light by luminance
   const sorted = [...src].sort((a, b) => luminance(a) - luminance(b));
   const dark = sorted[0] ?? primary;
@@ -362,13 +385,13 @@ function computePlacements(
   maskSize: number,
   opts: PackOptions,
 ): PackComputationResult {
-  const occupancyMin = clamp(opts.occupancyMin ?? 0.82, 0.5, 0.90);
-  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.86, occupancyMin, 0.90);
-  const occupancyMax = clamp(opts.occupancyMax ?? 0.90, occupancyTarget, 0.92);
+  const occupancyMin = clamp(opts.occupancyMin ?? 0.82, 0.5, 0.9);
+  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.86, occupancyMin, 0.9);
+  const occupancyMax = clamp(opts.occupancyMax ?? 0.9, occupancyTarget, 0.92);
   const silhouetteMin = clamp(opts.silhouetteSimilarityThreshold ?? 0.88, 0, 1);
   // Horizontal ratio gate is removed: angled text legitimately reduces it.
   const horizontalMin = clamp(opts.orientationHorizontalMin ?? 0.55, 0.3, 1);
-  const horizontalMax = clamp(opts.orientationHorizontalMax ?? 0.90, horizontalMin, 1);
+  const horizontalMax = clamp(opts.orientationHorizontalMax ?? 0.9, horizontalMin, 1);
   const frameMask = remapMaskForFrame(
     mask,
     maskSize,
@@ -621,14 +644,16 @@ function computePlacements(
   // Angle palette: 0° for name/tier-2, a richer set including diagonals for
   // tiers 3–5, especially when seeding from boundary cells.
   const ANGLED_PALETTE = [
-    0, 0, 0,                    // 3× horizontal – most common
-    Math.PI / 12,               // +15°
-    -Math.PI / 12,              // -15°
-    Math.PI / 6,                // +30°
-    -Math.PI / 6,               // -30°
-    Math.PI / 4,                // +45°
-    -Math.PI / 4,               // -45°
-    Math.PI / 2,                // 90°
+    0,
+    0,
+    0, // 3× horizontal – most common
+    Math.PI / 12, // +15°
+    -Math.PI / 12, // -15°
+    Math.PI / 6, // +30°
+    -Math.PI / 6, // -30°
+    Math.PI / 4, // +45°
+    -Math.PI / 4, // -45°
+    Math.PI / 2, // 90°
   ] as const;
 
   function pickAngle(tier: 2 | 3 | 4 | 5, nearBoundary = false): number {
@@ -727,12 +752,14 @@ function computePlacements(
   ): boolean {
     for (let s = 0; s < seedAttempts; s++) {
       const isBoundarySeed = preferBoundary || s === 0;
-      const seed = preferLarge && s === 0
-        ? pickInteriorSeed()
-        : isBoundarySeed
-          ? pickBoundarySeed()
-          : pickEmptySeed();
-      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed, isBoundarySeed)) return true;
+      const seed =
+        preferLarge && s === 0
+          ? pickInteriorSeed()
+          : isBoundarySeed
+            ? pickBoundarySeed()
+            : pickEmptySeed();
+      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed, isBoundarySeed))
+        return true;
     }
     // Final fallback: center spiral.
     return place(word, fontSize, color, tier, fontFamily, fontWeight, null, false);
@@ -742,9 +769,7 @@ function computePlacements(
   const nameText = (opts.name || "").trim();
   // Reference-art sizing: ~10% of SILHOUETTE height, with small emphasis nudge.
   const targetNameSize =
-    shapeH *
-    ((etsy ? 0.085 : 0.10) + 0.01 * Math.min(1, Math.max(-1, emphasisMul - 1))) *
-    scaleMul;
+    shapeH * ((etsy ? 0.085 : 0.1) + 0.01 * Math.min(1, Math.max(-1, emphasisMul - 1))) * scaleMul;
   const maxNameWidth = bboxW * 0.55;
   let nameSize = targetNameSize;
   if (nameText) {
@@ -835,13 +860,18 @@ function computePlacements(
       for (const w of unplacedMedium.slice(0, 24)) {
         const fs = shapeH * (etsy ? 0.014 : 0.016) * scaleMul;
         const nearBoundary = Math.random() < 0.7;
-        const seed = nearBoundary ? (pickContourSeed(contourBand) ?? pickInteriorSeed()) : pickInteriorSeed();
-        if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed, nearBoundary)) cyclePlacements++;
+        const seed = nearBoundary
+          ? (pickContourSeed(contourBand) ?? pickInteriorSeed())
+          : pickInteriorSeed();
+        if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed, nearBoundary))
+          cyclePlacements++;
       }
       for (const w of unplacedSmall.slice(0, 40)) {
         const fs = shapeH * (etsy ? 0.0087 : 0.0094);
         const nearBoundary = Math.random() < 0.6;
-        const seed = nearBoundary ? (pickContourSeed(contourBand) ?? pickInteriorSeed()) : pickInteriorSeed();
+        const seed = nearBoundary
+          ? (pickContourSeed(contourBand) ?? pickInteriorSeed())
+          : pickInteriorSeed();
         if (place(w.word, fs, palette.mid, 4, bodyFont, 400, seed, nearBoundary)) cyclePlacements++;
       }
 
@@ -878,8 +908,14 @@ function computePlacements(
       for (let b = 0; b < balancingWords.length; b++) {
         const region: keyof ShapeRegions =
           b % 2 === 0
-            ? (preferLeft ? "leftArm" : "rightArm")
-            : (preferTop ? "head" : (b % 4 === 1 ? "leftLeg" : "rightLeg"));
+            ? preferLeft
+              ? "leftArm"
+              : "rightArm"
+            : preferTop
+              ? "head"
+              : b % 4 === 1
+                ? "leftLeg"
+                : "rightLeg";
         const seed = pickRegionSeed(region) ?? pickEmptySeed();
         const fs = shapeH * 0.008;
         if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed, false)) {
@@ -908,8 +944,6 @@ function computePlacements(
     }
   }
 
-
-
   // Real silhouette area coverage (filled mask cells / total mask cells).
   const coverage = maskCellCount === 0 ? 0 : occupiedCount / maskCellCount;
   const uniqueCount = uniqueWordsSeen.size;
@@ -920,7 +954,7 @@ function computePlacements(
   const tbDelta = Math.abs(topWeight - bottomWeight) / (topWeight + bottomWeight || 1);
   const balanceScore = Math.max(0, 100 - ((lrDelta + tbDelta) / 2) * 140);
   const nameAreaPct = nameText
-    ? ((measureWord(nameText, nameSize, nameFont, 800) + 12) * (nameSize + 8) /
+    ? (((measureWord(nameText, nameSize, nameFont, 800) + 12) * (nameSize + 8)) /
         (width * height)) *
       100
     : 0;
@@ -977,7 +1011,11 @@ function computePlacements(
     coverage >= occupancyMin && coverage <= occupancyTarget
       ? 1
       : coverage > occupancyTarget && coverage <= occupancyMax
-        ? clamp(1 - (coverage - occupancyTarget) / Math.max(0.0001, occupancyMax - occupancyTarget), 0, 1)
+        ? clamp(
+            1 - (coverage - occupancyTarget) / Math.max(0.0001, occupancyMax - occupancyTarget),
+            0,
+            1,
+          )
         : clamp(coverage / occupancyMin, 0, 1);
   const iou = union === 0 ? 0 : inter / union;
   const silhouetteSimilarity = clamp(

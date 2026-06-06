@@ -134,8 +134,7 @@ export async function detectMaskOrientation(svgOrUrl: string): Promise<MaskOrien
     return new Promise((resolve) => {
       const img = new Image();
       img.crossOrigin = "anonymous";
-      img.onload = () =>
-        resolve(img.naturalWidth > img.naturalHeight ? "landscape" : "portrait");
+      img.onload = () => resolve(img.naturalWidth > img.naturalHeight ? "landscape" : "portrait");
       img.onerror = () => resolve("portrait");
       img.src = source;
     });

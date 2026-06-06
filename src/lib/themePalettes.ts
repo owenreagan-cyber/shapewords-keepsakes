@@ -17,7 +17,11 @@ export function pickBestPreset(args: {
   if (/(dance|ballet|performance|artistic|joy|music|stage)/.test(hay)) {
     return { palette: ["#1A0B2E", "#7C3AED", "#EC4899"], fontFamily: "Cormorant Garamond" };
   }
-  if (/(sport|athlet|soccer|basketball|football|baseball|energy|leadership|run|track|hockey|tennis)/.test(hay)) {
+  if (
+    /(sport|athlet|soccer|basketball|football|baseball|energy|leadership|run|track|hockey|tennis)/.test(
+      hay,
+    )
+  ) {
     return { palette: ["#0A0A0A", "#1E40AF", "#DC2626"], fontFamily: "Bebas Neue" };
   }
   if (/(boy|adventure|loyal|brave|explorer|knight|dragon|robot|truck|dino)/.test(hay)) {
@@ -27,8 +31,9 @@ export function pickBestPreset(args: {
     return { palette: ["#1F1147", "#9333EA", "#F472B6"], fontFamily: "Playfair Display" };
   }
 
-  const fallback = (args.fallbackPalette && args.fallbackPalette.length > 0)
-    ? args.fallbackPalette
-    : ["#0A0A0A", "#444444", "#999999"];
+  const fallback =
+    args.fallbackPalette && args.fallbackPalette.length > 0
+      ? args.fallbackPalette
+      : ["#0A0A0A", "#444444", "#999999"];
   return { palette: fallback, fontFamily: args.fallbackFont || "Montserrat" };
 }
