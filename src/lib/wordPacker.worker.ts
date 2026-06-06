@@ -247,12 +247,13 @@ function computePlacements(
   maskSize: number,
   opts: PackOptions,
 ): PackComputationResult {
-  const occupancyMin = clamp(opts.occupancyMin ?? 0.88, 0.5, 0.92);
-  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.9, occupancyMin, 0.92);
-  const occupancyMax = clamp(opts.occupancyMax ?? 0.94, occupancyTarget, 0.94);
-  const silhouetteMin = clamp(opts.silhouetteSimilarityThreshold ?? 0.9, 0, 1);
-  const horizontalMin = clamp(opts.orientationHorizontalMin ?? 0.75, 0.5, 1);
-  const horizontalMax = clamp(opts.orientationHorizontalMax ?? 0.85, horizontalMin, 1);
+  const occupancyMin = clamp(opts.occupancyMin ?? 0.82, 0.5, 0.90);
+  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.86, occupancyMin, 0.90);
+  const occupancyMax = clamp(opts.occupancyMax ?? 0.90, occupancyTarget, 0.92);
+  const silhouetteMin = clamp(opts.silhouetteSimilarityThreshold ?? 0.88, 0, 1);
+  // Horizontal ratio gate is removed: angled text legitimately reduces it.
+  const horizontalMin = clamp(opts.orientationHorizontalMin ?? 0.55, 0.3, 1);
+  const horizontalMax = clamp(opts.orientationHorizontalMax ?? 0.90, horizontalMin, 1);
   const frameMask = remapMaskForFrame(
     mask,
     maskSize,
@@ -506,13 +507,24 @@ function computePlacements(
     else horizontalPlacements++;
   }
 
-  function pickVertical(tier: 2 | 3 | 4 | 5) {
-    if (tier < 3) return false;
-    const totalOriented = horizontalPlacements + verticalPlacements;
-    const currentVertical = totalOriented === 0 ? 0 : verticalPlacements / totalOriented;
-    if (currentVertical < 0.15) return Math.random() < 0.32;
-    if (currentVertical > 0.25) return Math.random() < 0.04;
-    return Math.random() < 0.2;
+  // Angle palette: 0° for name/tier-2, a richer set including diagonals for
+  // tiers 3–5, especially when seeding from boundary cells.
+  const ANGLED_PALETTE = [
+    0, 0, 0,                    // 3× horizontal – most common
+    Math.PI / 12,               // +15°
+    -Math.PI / 12,              // -15°
+    Math.PI / 6,                // +30°
+    -Math.PI / 6,               // -30°
+    Math.PI / 4,                // +45°
+    -Math.PI / 4,               // -45°
+    Math.PI / 2,                // 90°
+  ] as const;
+
+  function pickAngle(tier: 2 | 3 | 4 | 5, nearBoundary = false): number {
+    if (tier < 3) return 0; // name and anchors stay horizontal
+    // Near silhouette edges allow wider angle range; interior prefers horizontal.
+    const palette = nearBoundary ? ANGLED_PALETTE : ANGLED_PALETTE.slice(0, 5);
+    return palette[Math.floor(Math.random() * palette.length)];
   }
 
   // tier: 2 | 3 | 4 | 5  → controls rotation policy & attempt budget
@@ -524,12 +536,16 @@ function computePlacements(
     fontFamily: string,
     fontWeight: number,
     seed?: { x: number; y: number } | null,
+    nearBoundary = false,
   ): boolean {
-    const angle = pickVertical(tier) ? Math.PI / 2 : 0;
+    const angle = pickAngle(tier, nearBoundary);
     const tw = measureWord(word, fontSize, fontFamily, fontWeight);
     const th = fontSize * 1.05;
-    const bw = angle ? th : tw;
-    const bh = angle ? tw : th;
+    // Compute axis-aligned bounding box for any rotation angle.
+    const cosA = Math.abs(Math.cos(angle));
+    const sinA = Math.abs(Math.sin(angle));
+    const bw = tw * cosA + th * sinA;
+    const bh = tw * sinA + th * cosA;
 
     // Distributed seeding: each word starts at an empty-region seed (not
     // canvas center), so torsos don't hog space while arms/legs stay empty.
@@ -586,6 +602,7 @@ function computePlacements(
   }
 
   // Try multiple seeds before giving up (gap-filling).
+  // preferBoundary=true makes the first pass always try boundary seeds (edge-first strategy).
   function placeWithSeeds(
     word: string,
     fontSize: number,
@@ -595,15 +612,19 @@ function computePlacements(
     fontWeight: number,
     seedAttempts = 4,
     preferLarge = false,
+    preferBoundary = false,
   ): boolean {
     for (let s = 0; s < seedAttempts; s++) {
+      const isBoundarySeed = preferBoundary || s === 0;
       const seed = preferLarge && s === 0
         ? pickLargestEmptySeed()
-        : pickEmptySeed();
-      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed)) return true;
+        : isBoundarySeed
+          ? pickBoundarySeed()
+          : pickEmptySeed();
+      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed, isBoundarySeed)) return true;
     }
     // Final fallback: center spiral.
-    return place(word, fontSize, color, tier, fontFamily, fontWeight, null);
+    return place(word, fontSize, color, tier, fontFamily, fontWeight, null, false);
   }
 
   // --- Pass 1 (student name): locked to center, registered first ---
@@ -647,36 +668,38 @@ function computePlacements(
   completedUnits++;
   sendProgress();
 
-  // --- Pass 2 (anchor words): large, dark, horizontal-only ---
+  // --- Pass 2 (anchor words): large, dark, boundary-first then large empty ---
   for (const w of tier2) {
     const fs = shapeH * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
-    placeWithSeeds(w.word, fs, color, 2, bodyFont, 700, 5, true);
+    placeWithSeeds(w.word, fs, color, 2, bodyFont, 700, 5, true, true);
     completedUnits++;
     sendProgress();
   }
 
-  
-
-  // --- Pass 3 (medium words): includes boundary reinforcement seeds ---
+  // --- Pass 3 (medium words): boundary-first; enables diagonal angles near edges ---
   const unplacedMedium: typeof tier3 = [];
   for (const w of tier3) {
     const fs = shapeH * (etsy ? 0.015 : 0.017) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
-    const seed = Math.random() < 0.65 ? pickBoundarySeed() : pickEmptySeed();
-    const placed = place(w.word, fs, color, 3, bodyFont, 500, seed);
+    // Always start from boundary; fall back to empty interior on retries.
+    const seed = pickBoundarySeed() ?? pickEmptySeed();
+    const nearBoundary = true;
+    const placed = place(w.word, fs, color, 3, bodyFont, 500, seed, nearBoundary);
     if (!placed) unplacedMedium.push(w);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Pass 4 (gap filling): small words ---
+  // --- Pass 4 (gap filling): small words, boundary-priority ---
   const unplacedSmall: typeof tier4 = [];
   for (const w of tier4) {
     const fs = shapeH * (etsy ? 0.0095 : 0.0105) + (Math.random() - 0.5) * 1.2;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
-    const seed = Math.random() < 0.45 ? pickBoundarySeed() : pickEmptySeed();
-    const placed = place(w.word, fs, color, 4, bodyFont, 400, seed);
+    // 80% boundary seed → small words actively define the silhouette outline.
+    const nearBoundary = Math.random() < 0.8;
+    const seed = nearBoundary ? (pickBoundarySeed() ?? pickEmptySeed()) : pickEmptySeed();
+    const placed = place(w.word, fs, color, 4, bodyFont, 400, seed, nearBoundary);
     if (!placed) unplacedSmall.push(w);
     completedUnits++;
     sendProgress();
@@ -700,13 +723,15 @@ function computePlacements(
       // 1) Detect emptier regions and fill with small contour-aware words.
       for (const w of unplacedMedium.slice(0, 24)) {
         const fs = shapeH * (etsy ? 0.014 : 0.016) * scaleMul;
-        const seed = Math.random() < 0.55 ? pickBoundarySeed() : pickLargestEmptySeed();
-        if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed)) cyclePlacements++;
+        const nearBoundary = Math.random() < 0.7;
+        const seed = nearBoundary ? (pickBoundarySeed() ?? pickLargestEmptySeed()) : pickLargestEmptySeed();
+        if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed, nearBoundary)) cyclePlacements++;
       }
       for (const w of unplacedSmall.slice(0, 40)) {
         const fs = shapeH * (etsy ? 0.0087 : 0.0094);
-        const seed = Math.random() < 0.5 ? pickBoundarySeed() : pickLargestEmptySeed();
-        if (place(w.word, fs, palette.mid, 4, bodyFont, 400, seed)) cyclePlacements++;
+        const nearBoundary = Math.random() < 0.6;
+        const seed = nearBoundary ? (pickBoundarySeed() ?? pickLargestEmptySeed()) : pickLargestEmptySeed();
+        if (place(w.word, fs, palette.mid, 4, bodyFont, 400, seed, nearBoundary)) cyclePlacements++;
       }
 
       // 2) Fill remaining micro gaps from empty cells with adaptive tiny words.
@@ -723,8 +748,9 @@ function computePlacements(
         let placedMicro = false;
         for (const fs of sizes) {
           if (fs < MIN_FONT_PT - 0.5) continue;
-          const seed = pickLargestEmptySeed(70) ?? pickEmptySeed();
-          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed)) {
+          const nearBoundary = Math.random() < 0.5;
+          const seed = nearBoundary ? (pickBoundarySeed() ?? pickLargestEmptySeed(70) ?? pickEmptySeed()) : (pickLargestEmptySeed(70) ?? pickEmptySeed());
+          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed, nearBoundary)) {
             placedMicro = true;
             break;
           }
@@ -740,7 +766,7 @@ function computePlacements(
         const region = b % 2 === 0 ? (preferLeft ? "left" : "right") : preferTop ? "top" : "bottom";
         const seed = pickEmptySeedInRegion(region) ?? pickEmptySeed();
         const fs = shapeH * 0.008;
-        if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed)) {
+        if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed, false)) {
           cyclePlacements++;
         }
       }
@@ -752,7 +778,7 @@ function computePlacements(
           const w = pool[guard % pool.length];
           const fs = Math.max(MIN_FONT_PT, shapeH * 0.0065);
           const seed = pickLargestEmptySeed(80) ?? pickEmptySeed();
-          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed)) cyclePlacements++;
+          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed, false)) cyclePlacements++;
           guard++;
         }
       }
@@ -845,14 +871,12 @@ function computePlacements(
   );
   const qualityPassed =
     silhouetteSimilarity >= silhouetteMin &&
-    widthProfileScore >= 0.82 &&
-    heightProfileScore >= 0.82 &&
-    contourProfileScore >= 0.78 &&
+    widthProfileScore >= 0.78 &&
+    heightProfileScore >= 0.78 &&
+    contourProfileScore >= 0.72 &&
     coverage >= occupancyMin &&
     coverage <= occupancyMax &&
-    horizontalRatio >= horizontalMin &&
-    horizontalRatio <= horizontalMax &&
-    dominantNameScore >= 1.08;
+    dominantNameScore >= 1.0;
 
   const result: PackResult = {
     placedCount: placedTotal,
