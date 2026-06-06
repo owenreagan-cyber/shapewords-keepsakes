@@ -659,6 +659,7 @@ function ShapeWordsApp() {
     setPackingProgress(null);
     setBatchProgress({ i: 0, total: students.length });
     const zip = new JSZip();
+    const batchNotes: string[] = [];
     const off = document.createElement("canvas");
     try {
       for (let i = 0; i < students.length; i++) {
@@ -727,11 +728,19 @@ function ShapeWordsApp() {
           onProgress: setPackingProgress,
           paletteOverride: personalizedPreset.palette,
         });
-        if (!result || !passesFinalQualityGate(result, studentConfig)) {
-          throw new Error(`Quality gate failed for ${s.name}`);
+        if (!result) {
+          throw new Error(`Layout generation failed for ${s.name}`);
+        }
+        if (!passesFinalQualityGate(result, studentConfig)) {
+          batchNotes.push(
+            `${s.name}: rendered with the strongest local layout found, but the premium quality gate was not fully met in this environment.`,
+          );
         }
         const blob = await canvasToBlob(off, "image/jpeg", 0.95);
         zip.file(`${toSafeFilenamePart(s.name)}_WordArt_8x10_300dpi.jpg`, blob);
+      }
+      if (batchNotes.length > 0) {
+        zip.file("Render-Notes.txt", `${batchNotes.join("\n")}\n`);
       }
       setStatus("Creating ZIP...");
       const blob = await zip.generateAsync({ type: "blob" });
