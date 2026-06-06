@@ -181,6 +181,14 @@ interface RenderStats {
   uniqueWords: number;
   duplicateWords: number;
   balanceScore: number;
+  silhouetteSimilarity: number;
+  widthProfile: number;
+  heightProfile: number;
+  contourProfile: number;
+  occupancyScore: number;
+  horizontalRatio: number;
+  dominantNameScore: number;
+  qualityPassed: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -299,6 +307,14 @@ export default function WordPackerTestHarness() {
           uniqueWords: result.uniqueCount,
           duplicateWords: result.duplicateCount,
           balanceScore: Math.round(result.balanceScore),
+          silhouetteSimilarity: Math.round(result.silhouetteSimilarity * 1000) / 10,
+          widthProfile: Math.round(result.widthProfileScore * 1000) / 10,
+          heightProfile: Math.round(result.heightProfileScore * 1000) / 10,
+          contourProfile: Math.round(result.contourProfileScore * 1000) / 10,
+          occupancyScore: Math.round(result.regionOccupancyScore * 1000) / 10,
+          horizontalRatio: Math.round(result.horizontalRatio * 1000) / 10,
+          dominantNameScore: Math.round(result.dominantNameScore * 100) / 100,
+          qualityPassed: result.qualityPassed,
         });
         setPackProgress(100);
         setPhase("done");
@@ -426,6 +442,14 @@ export default function WordPackerTestHarness() {
                 uniqueWords: stats.uniqueWords,
                 duplicateWords: stats.duplicateWords,
                 balanceScore: stats.balanceScore,
+                silhouetteSimilarity: `${stats.silhouetteSimilarity}%`,
+                widthProfile: `${stats.widthProfile}%`,
+                heightProfile: `${stats.heightProfile}%`,
+                contourProfile: `${stats.contourProfile}%`,
+                occupancyScore: `${stats.occupancyScore}%`,
+                horizontalRatio: `${stats.horizontalRatio}%`,
+                dominantNameScore: stats.dominantNameScore,
+                qualityPassed: stats.qualityPassed,
               },
               null,
               2,
