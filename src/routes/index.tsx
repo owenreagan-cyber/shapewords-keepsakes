@@ -10,7 +10,13 @@ import {
   OPTIMIZATION_PRESETS,
   type Student,
 } from "@/lib/students";
-import { callShapeGen, callWordExpansion, getFallbackShapeSvg, sanitizeWords, type WordEntry } from "@/lib/gemini";
+import {
+  callShapeGen,
+  callWordExpansion,
+  getFallbackShapeSvg,
+  sanitizeWords,
+  type WordEntry,
+} from "@/lib/gemini";
 import { pickBestPreset } from "@/lib/themePalettes";
 import {
   buildMaskFromSvg,
@@ -145,7 +151,7 @@ function defaultConfig(s: Student): Config {
     silhouetteSimilarityThreshold: 0.88,
     occupancyMin: 0.82,
     occupancyTarget: 0.86,
-    occupancyMax: 0.90,
+    occupancyMax: 0.9,
     canvasHeightFillMin: 0.7,
     canvasHeightFillMax: 0.8,
   };
@@ -338,7 +344,8 @@ function ShapeWordsApp() {
         ? { mask, size: maskSize }
         : { mask: await buildMaskFromSvg(svg, maskSize), size: maskSize };
       const wordSet = normalizeWordEntries(student.name, rawWords, student.traits);
-      const palette = paletteOverride && paletteOverride.length > 0 ? paletteOverride : student.colorPalette;
+      const palette =
+        paletteOverride && paletteOverride.length > 0 ? paletteOverride : student.colorPalette;
       const accent = palette[1] ?? "#D97706";
       const typography = pickTypographyPair(renderConfig.fontFamily, renderConfig.etsyMode);
 
@@ -546,7 +553,9 @@ function ShapeWordsApp() {
       };
       setConfig(nextConfig);
       const wordsForRender =
-        words.length > 0 ? words : normalizeWordEntries(nameField, seedFromTraits(nameField, traitsField), traitsField);
+        words.length > 0
+          ? words
+          : normalizeWordEntries(nameField, seedFromTraits(nameField, traitsField), traitsField);
       await new Promise((r) => setTimeout(r, 30));
       // Render up to 3 attempts; keep the highest balance + coverage score.
       let best: PackResult | null = null;
@@ -571,7 +580,8 @@ function ShapeWordsApp() {
         });
         if (
           !best ||
-          (next && next.balanceScore + next.coverage * 100 > best.balanceScore + best.coverage * 100)
+          (next &&
+            next.balanceScore + next.coverage * 100 > best.balanceScore + best.coverage * 100)
         ) {
           best = next;
         }
@@ -607,7 +617,9 @@ function ShapeWordsApp() {
     try {
       const result = await renderToCanvas(canvas, ORIENTATION_OUTPUT_5X10[maskOrientation]);
       if (!result || !passesFinalQualityGate(result, config)) {
-        setStatus("Quality gate failed. Regenerate to improve silhouette/readability before export.");
+        setStatus(
+          "Quality gate failed. Regenerate to improve silhouette/readability before export.",
+        );
         await new Promise((r) => setTimeout(r, 1600));
         return;
       }
@@ -618,7 +630,6 @@ function ShapeWordsApp() {
       setStatus(null);
     }
   };
-
 
   const handleBatchExport = async () => {
     setBusy(true);
@@ -736,11 +747,7 @@ function ShapeWordsApp() {
                     outlineMode: v as Config["outlineMode"],
                   }))
                 }
-                options={[
-                  "invisible",
-                  "thin",
-                  "decorative",
-                ]}
+                options={["invisible", "thin", "decorative"]}
               />
             </Field>
             <label className="flex items-center justify-between text-xs text-foreground">
@@ -1226,15 +1233,23 @@ async function saveBlobWithBestDownloadFlow(blob: Blob, filename: string, mimeTy
   saveAs(blob, filename);
 }
 
-async function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
+async function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  type: string,
+  quality?: number,
+): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (!blob) {
-        reject(new Error("Failed to create export blob"));
-        return;
-      }
-      resolve(blob);
-    }, type, quality);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Failed to create export blob"));
+          return;
+        }
+        resolve(blob);
+      },
+      type,
+      quality,
+    );
   });
 }
 
@@ -1524,7 +1539,11 @@ function scoreLayout(result: PackResult, words: WordEntry[], config: Config): Qu
   const typography =
     clamp(100 - Math.abs(result.nameAreaPct - 11.5) * 5, 0, 100) * 0.6 +
     clamp(100 - Math.abs(result.accentRatio - 15) * 4, 0, 100) * 0.4;
-  const shapeRecognition = clamp(result.silhouetteSimilarity * 100 * 0.7 + result.balanceScore * 0.3, 0, 100);
+  const shapeRecognition = clamp(
+    result.silhouetteSimilarity * 100 * 0.7 + result.balanceScore * 0.3,
+    0,
+    100,
+  );
   const printQuality = clamp(
     92 -
       Math.max(0, result.duplicateCount - 6) * 0.15 -
