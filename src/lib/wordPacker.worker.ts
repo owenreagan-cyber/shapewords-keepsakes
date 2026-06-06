@@ -1056,14 +1056,14 @@ function computePlacements(
       const prioritizedRegions = [
         ...sparseRegions.map((entry) => entry.region),
         ...(preferTop ? (["head", "leftArm", "rightArm"] as RegionKey[]) : []),
-        ...(preferLeft ? (["leftArm", "leftLeg"] as RegionKey[]) : ["rightArm", "rightLeg"]),
-        "torso",
-        "leftArm",
-        "rightArm",
-        "head",
-        "leftLeg",
-        "rightLeg",
-      ].filter((region, index, arr) => arr.indexOf(region) === index);
+        ...(preferLeft ? (["leftArm", "leftLeg"] as RegionKey[]) : (["rightArm", "rightLeg"] as RegionKey[])),
+        "torso" as RegionKey,
+        "leftArm" as RegionKey,
+        "rightArm" as RegionKey,
+        "head" as RegionKey,
+        "leftLeg" as RegionKey,
+        "rightLeg" as RegionKey,
+      ].filter((region, index, arr) => arr.indexOf(region) === index) as RegionKey[];
       const balancingWords = pool.slice(0, 40);
       for (let b = 0; b < balancingWords.length; b++) {
         const region = prioritizedRegions[b % prioritizedRegions.length] ?? "torso";
