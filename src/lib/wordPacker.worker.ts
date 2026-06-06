@@ -247,9 +247,9 @@ function computePlacements(
   maskSize: number,
   opts: PackOptions,
 ): PackComputationResult {
-  const occupancyMin = clamp(opts.occupancyMin ?? 0.88, 0.5, 0.98);
-  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.92, occupancyMin, 0.98);
-  const occupancyMax = clamp(opts.occupancyMax ?? 0.95, occupancyTarget, 0.99);
+  const occupancyMin = clamp(opts.occupancyMin ?? 0.88, 0.5, 0.92);
+  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.9, occupancyMin, 0.92);
+  const occupancyMax = clamp(opts.occupancyMax ?? 0.94, occupancyTarget, 0.94);
   const silhouetteMin = clamp(opts.silhouetteSimilarityThreshold ?? 0.9, 0, 1);
   const horizontalMin = clamp(opts.orientationHorizontalMin ?? 0.75, 0.5, 1);
   const horizontalMax = clamp(opts.orientationHorizontalMax ?? 0.85, horizontalMin, 1);
@@ -257,7 +257,7 @@ function computePlacements(
     mask,
     maskSize,
     opts.canvasHeightFillMin ?? 0.7,
-    opts.canvasHeightFillMax ?? 0.85,
+    opts.canvasHeightFillMax ?? 0.8,
   );
 
   const { width, height } = opts;
@@ -663,7 +663,7 @@ function computePlacements(
   for (const w of tier3) {
     const fs = shapeH * (etsy ? 0.015 : 0.017) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
-    const seed = Math.random() < 0.45 ? pickBoundarySeed() : pickEmptySeed();
+    const seed = Math.random() < 0.65 ? pickBoundarySeed() : pickEmptySeed();
     const placed = place(w.word, fs, color, 3, bodyFont, 500, seed);
     if (!placed) unplacedMedium.push(w);
     completedUnits++;
@@ -675,86 +675,91 @@ function computePlacements(
   for (const w of tier4) {
     const fs = shapeH * (etsy ? 0.0095 : 0.0105) + (Math.random() - 0.5) * 1.2;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
-    const placed = placeWithSeeds(w.word, fs, color, 4, bodyFont, 400, 3, false);
+    const seed = Math.random() < 0.45 ? pickBoundarySeed() : pickEmptySeed();
+    const placed = place(w.word, fs, color, 4, bodyFont, 400, seed);
     if (!placed) unplacedSmall.push(w);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Pass 5 (micro-gap filling): coverage-driven mortar ---
+  // --- Pass 5+ (whitespace recovery): small → micro → rebalance ---
   if (pool.length > 0) {
-    const MIN_FONT_PT = Math.max(3, shapeMin * 0.0028);
+    const MIN_FONT_PT = Math.max(shapeMin * 0.0025, shapeH * 0.0036);
     const startFs = Math.max(MIN_FONT_PT, shapeH * (etsy ? 0.0085 : 0.0095));
-    const HARD_CAP = etsy ? 6000 : 12000;
-    const MAX_CONSEC_FAIL = 600;
+    const MAX_RECOVERY_CYCLES = etsy ? 28 : 18;
+    const HARD_CAP = etsy ? 4200 : 9000;
     const perWordCap = 4;
-    let consecFail = 0;
     let i = 0;
-    while (i < HARD_CAP) {
+    let cycle = 0;
+    while (i < HARD_CAP && cycle < MAX_RECOVERY_CYCLES) {
       const coverageNow = maskCellCount === 0 ? 1 : occupiedCount / maskCellCount;
       if (coverageNow >= occupancyMax) break;
       if (coverageNow >= occupancyTarget) break;
-      // Below floor: keep pushing even past plateau (reset budget once).
-      if (consecFail >= MAX_CONSEC_FAIL) {
-        if (coverageNow < occupancyMin) consecFail = 0;
-        else break;
-      }
+      let cyclePlacements = 0;
 
-      const w = pool[i % pool.length];
-      const key = w.word.toLowerCase();
-      if ((wordCounts.get(key) ?? 0) >= perWordCap) {
-        i++;
-        continue;
-      }
-      // Adaptive shrink — get smaller as coverage climbs, so we squeeze into gaps.
-      const shrink = 1 - Math.min(0.6, coverageNow * 0.5);
-      const baseFs = Math.max(MIN_FONT_PT, startFs * shrink);
-      const sizes = [baseFs, baseFs * 0.8, baseFs * 0.6, MIN_FONT_PT];
-      let placed = false;
-      for (const fs of sizes) {
-        if (fs < MIN_FONT_PT - 0.5) continue;
-        // Always seed from an empty cell — true gap-filling.
-        if (placeWithSeeds(w.word, fs, palette.light, 5, bodyFont, 400, 3, false)) {
-          placed = true;
-          break;
-        }
-      }
-
-      // --- Pass 6 (shape refinement): retry medium/small words on contour ---
+      // 1) Detect emptier regions and fill with small contour-aware words.
       for (const w of unplacedMedium.slice(0, 24)) {
         const fs = shapeH * (etsy ? 0.014 : 0.016) * scaleMul;
-        place(w.word, fs, palette.dark, 3, bodyFont, 600, pickBoundarySeed());
+        const seed = Math.random() < 0.55 ? pickBoundarySeed() : pickLargestEmptySeed();
+        if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed)) cyclePlacements++;
       }
       for (const w of unplacedSmall.slice(0, 40)) {
         const fs = shapeH * (etsy ? 0.0087 : 0.0094);
-        place(w.word, fs, palette.mid, 4, bodyFont, 400, pickBoundarySeed());
+        const seed = Math.random() < 0.5 ? pickBoundarySeed() : pickLargestEmptySeed();
+        if (place(w.word, fs, palette.mid, 4, bodyFont, 400, seed)) cyclePlacements++;
       }
 
-      // --- Pass 7 (visual balancing): fill lighter quadrants ---
+      // 2) Fill remaining micro gaps from empty cells with adaptive tiny words.
+      const microPlacementsPerCycle = etsy ? 120 : 80;
+      for (let m = 0; m < microPlacementsPerCycle; m++) {
+        const w = pool[i % pool.length];
+        const key = w.word.toLowerCase();
+        i++;
+        if ((wordCounts.get(key) ?? 0) >= perWordCap) continue;
+
+        const shrink = 1 - Math.min(0.62, coverageNow * 0.55);
+        const baseFs = Math.max(MIN_FONT_PT, startFs * shrink);
+        const sizes = [baseFs, baseFs * 0.8, baseFs * 0.65, MIN_FONT_PT];
+        let placedMicro = false;
+        for (const fs of sizes) {
+          if (fs < MIN_FONT_PT - 0.5) continue;
+          const seed = pickLargestEmptySeed(70) ?? pickEmptySeed();
+          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed)) {
+            placedMicro = true;
+            break;
+          }
+        }
+        if (placedMicro) cyclePlacements++;
+      }
+
+      // 3) Rebalance composition across lighter regions.
       const preferLeft = rightWeight > leftWeight;
       const preferTop = bottomWeight > topWeight;
       const balancingWords = pool.slice(0, 40);
-      for (let i = 0; i < balancingWords.length; i++) {
-        const region = i % 2 === 0 ? (preferLeft ? "left" : "right") : preferTop ? "top" : "bottom";
+      for (let b = 0; b < balancingWords.length; b++) {
+        const region = b % 2 === 0 ? (preferLeft ? "left" : "right") : preferTop ? "top" : "bottom";
         const seed = pickEmptySeedInRegion(region) ?? pickEmptySeed();
         const fs = shapeH * 0.008;
-        place(balancingWords[i].word, fs, palette.light, 5, bodyFont, 400, seed);
+        if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed)) {
+          cyclePlacements++;
+        }
       }
 
-      // --- Pass 8 (final optimization): enforce occupancy floor ---
+      // 4) Floor enforcement: keep filling until at least occupancyMin.
       if (pool.length > 0 && maskCellCount > 0) {
         let guard = 0;
-        while (occupiedCount / maskCellCount < occupancyMin && guard < 1400) {
+        while (occupiedCount / maskCellCount < occupancyMin && guard < 1200) {
           const w = pool[guard % pool.length];
-          const fs = Math.max(3, shapeH * 0.0065);
-          placeWithSeeds(w.word, fs, palette.light, 5, bodyFont, 400, 3, false);
+          const fs = Math.max(MIN_FONT_PT, shapeH * 0.0065);
+          const seed = pickLargestEmptySeed(80) ?? pickEmptySeed();
+          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed)) cyclePlacements++;
           guard++;
         }
       }
-      if (placed) consecFail = 0;
-      else consecFail++;
-      i++;
-      if (i % 20 === 0) {
+
+      cycle++;
+      if (cyclePlacements === 0) break;
+      if (cycle % 2 === 0) {
         completedUnits = Math.min(totalUnits - 1, completedUnits + 1);
         sendProgress();
       }
