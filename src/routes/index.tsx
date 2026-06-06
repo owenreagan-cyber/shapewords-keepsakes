@@ -66,6 +66,8 @@ const PRINTABLE_RESOLUTIONS = new Set<keyof typeof EXPORT_RES>([
   "print_16x20",
 ]);
 const BEST_SHAPE_WORD_COUNT = 220;
+const PREMIUM_BATCH_FILENAME = "Class-Keepsakes.zip";
+const PREMIUM_BATCH_LAYOUT_ATTEMPTS = 3;
 
 const ORIENTATION_OUTPUT_5X10: Record<MaskOrientation, { w: number; h: number }> = {
   portrait: { w: 1500, h: 3000 },
@@ -147,7 +149,7 @@ function defaultConfig(s: Student): Config {
     preset: "Premium Print",
     resolution: "print_8x10",
     etsyMode: true,
-    wordCount: 150,
+    wordCount: BEST_SHAPE_WORD_COUNT,
     invisibleShapeMode: true,
     silhouetteSimilarityThreshold: 0.88,
     occupancyMin: 0.82,
@@ -202,6 +204,20 @@ function passesFinalQualityGate(result: PackResult, config: Config): boolean {
     result.coverage <= config.occupancyMax &&
     result.dominantNameScore >= 1.0 &&
     result.qualityPassed
+  );
+}
+
+function scorePremiumLayoutCandidate(result: PackResult, config: Config): number {
+  const qualityGateBonus = passesFinalQualityGate(result, config) ? 1000 : 0;
+  return (
+    qualityGateBonus +
+    result.silhouetteSimilarity * 500 +
+    result.contourProfileScore * 220 +
+    result.regionOccupancyScore * 180 +
+    result.widthProfileScore * 120 +
+    result.heightProfileScore * 120 +
+    result.balanceScore * 0.45 +
+    result.coverage * 100
   );
 }
 
@@ -716,18 +732,37 @@ function ShapeWordsApp() {
         const orientation = await detectMaskOrientation(svg);
         const mask = await buildMaskFromSvg(svg, 512);
 
+        const wordsForStudent = capWords(normalizedWords, studentConfig.wordCount, s.name);
         setPackingProgress(0);
-        const result = await renderWordArt({
-          canvas: off,
-          student: s,
-          config: studentConfig,
-          size: getCanvasSizeForResolution(studentConfig.resolution, orientation),
-          svg,
-          words: capWords(normalizedWords, studentConfig.wordCount, s.name),
-          mask,
-          onProgress: setPackingProgress,
-          paletteOverride: personalizedPreset.palette,
-        });
+        let result: PackResult | null = null;
+        let bestScore = Number.NEGATIVE_INFINITY;
+        for (let attempt = 0; attempt < PREMIUM_BATCH_LAYOUT_ATTEMPTS; attempt++) {
+          if (attempt > 0) {
+            setStatus(
+              `Refining ${s.name} (${attempt + 1}/${PREMIUM_BATCH_LAYOUT_ATTEMPTS}) for premium quality`,
+            );
+          }
+          const next = await renderWordArt({
+            canvas: off,
+            student: s,
+            config: studentConfig,
+            size: getCanvasSizeForResolution(studentConfig.resolution, orientation),
+            svg,
+            words: wordsForStudent,
+            mask,
+            onProgress: setPackingProgress,
+            paletteOverride: personalizedPreset.palette,
+          });
+          if (!next) continue;
+          const score = scorePremiumLayoutCandidate(next, studentConfig);
+          if (score > bestScore) {
+            bestScore = score;
+            result = next;
+          }
+          if (passesFinalQualityGate(next, studentConfig) && next.silhouetteSimilarity >= 0.94) {
+            break;
+          }
+        }
         if (!result) {
           throw new Error(`Layout generation failed for ${s.name}`);
         }
@@ -744,7 +779,7 @@ function ShapeWordsApp() {
       }
       setStatus("Creating ZIP...");
       const blob = await zip.generateAsync({ type: "blob" });
-      await saveBlobWithBestDownloadFlow(blob, "Class-Keepsakes.zip", "application/zip");
+      await saveBlobWithBestDownloadFlow(blob, PREMIUM_BATCH_FILENAME, "application/zip");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       setStatus("Batch failed: " + message);
