@@ -208,20 +208,124 @@ function scoreProfileSimilarity(maskProfile: number[], occupiedProfile: number[]
   return clamp(1 - totalDiff / maskProfile.length, 0, 1);
 }
 
-function edgeMapFromGrid(grid: Uint8Array, size: number): Uint8Array {
-  const edge = new Uint8Array(size * size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = y * size + x;
-      if (grid[i] !== 1) continue;
-      const up = y > 0 ? grid[i - size] : 0;
-      const dn = y < size - 1 ? grid[i + size] : 0;
-      const lf = x > 0 ? grid[i - 1] : 0;
-      const rt = x < size - 1 ? grid[i + 1] : 0;
-      if (!up || !dn || !lf || !rt) edge[i] = 1;
+interface DistanceField {
+  width: number;
+  height: number;
+  insideDistance: Float32Array;
+  outsideDistance: Float32Array;
+  contourPixels: Uint8Array;
+}
+
+const DISTANCE_FIELD_INF = 1e12;
+
+function distanceTransform1D(values: Float32Array, length: number): Float32Array {
+  const distances = new Float32Array(length);
+  const vertices = new Int32Array(length);
+  const intersections = new Float64Array(length + 1);
+  let firstFinite = -1;
+  for (let i = 0; i < length; i++) {
+    if (values[i] < DISTANCE_FIELD_INF) {
+      firstFinite = i;
+      break;
     }
   }
-  return edge;
+  if (firstFinite === -1) {
+    distances.fill(DISTANCE_FIELD_INF);
+    return distances;
+  }
+
+  let k = 0;
+  vertices[0] = firstFinite;
+  intersections[0] = -Infinity;
+  intersections[1] = Infinity;
+
+  for (let q = firstFinite + 1; q < length; q++) {
+    if (values[q] >= DISTANCE_FIELD_INF) continue;
+    let s =
+      ((values[q] + q * q) - (values[vertices[k]] + vertices[k] * vertices[k])) /
+      (2 * q - 2 * vertices[k]);
+    while (k > 0 && s <= intersections[k]) {
+      k--;
+      s =
+        ((values[q] + q * q) - (values[vertices[k]] + vertices[k] * vertices[k])) /
+        (2 * q - 2 * vertices[k]);
+    }
+    k++;
+    vertices[k] = q;
+    intersections[k] = s;
+    intersections[k + 1] = Infinity;
+  }
+
+  k = 0;
+  for (let q = 0; q < length; q++) {
+    while (intersections[k + 1] < q) k++;
+    const delta = q - vertices[k];
+    distances[q] = delta * delta + values[vertices[k]];
+  }
+
+  return distances;
+}
+
+function distanceTransform2D(source: Float32Array, width: number, height: number): Float32Array {
+  const columnPass = new Float32Array(width * height);
+  for (let x = 0; x < width; x++) {
+    const column = new Float32Array(height);
+    for (let y = 0; y < height; y++) {
+      column[y] = source[y * width + x];
+    }
+    const columnDistances = distanceTransform1D(column, height);
+    for (let y = 0; y < height; y++) {
+      columnPass[y * width + x] = columnDistances[y];
+    }
+  }
+
+  const output = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const row = columnPass.subarray(y * width, (y + 1) * width);
+    output.set(distanceTransform1D(row, width), y * width);
+  }
+
+  return output;
+}
+
+function buildSignedDistanceField(mask: Uint8Array, width: number, height = width): DistanceField {
+  const contourPixels = new Uint8Array(width * height);
+  let contourCount = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (mask[i] !== 1) continue;
+      const up = y > 0 ? mask[i - width] : 0;
+      const dn = y < height - 1 ? mask[i + width] : 0;
+      const lf = x > 0 ? mask[i - 1] : 0;
+      const rt = x < width - 1 ? mask[i + 1] : 0;
+      if (!up || !dn || !lf || !rt) {
+        contourPixels[i] = 1;
+        contourCount++;
+      }
+    }
+  }
+
+  const insideDistance = new Float32Array(width * height);
+  const outsideDistance = new Float32Array(width * height);
+  if (contourCount === 0) {
+    return { width, height, insideDistance, outsideDistance, contourPixels };
+  }
+
+  const contourSource = new Float32Array(width * height);
+  for (let i = 0; i < contourSource.length; i++) {
+    contourSource[i] = contourPixels[i] === 1 ? 0 : DISTANCE_FIELD_INF;
+  }
+
+  const squaredDistances = distanceTransform2D(contourSource, width, height);
+  for (let i = 0; i < squaredDistances.length; i++) {
+    const distance = Math.sqrt(squaredDistances[i]);
+    if (mask[i] === 1) insideDistance[i] = distance;
+    else outsideDistance[i] = distance;
+  }
+
+  return { width, height, insideDistance, outsideDistance, contourPixels };
 }
 
 function buildPalette(opts: PackOptions): { dark: string; mid: string; light: string; accent: string } {
@@ -844,13 +948,17 @@ function computePlacements(
     heightOcc.map((v) => v / OG),
   );
 
-  const maskEdges = edgeMapFromGrid(inMask, OG);
-  const occEdges = edgeMapFromGrid(occupied, OG);
+  const maskDistanceField = buildSignedDistanceField(inMask, OG);
+  const occDistanceField = buildSignedDistanceField(occupied, OG);
   let edgeInter = 0;
   let edgeUnion = 0;
-  for (let i = 0; i < maskEdges.length; i++) {
-    if (maskEdges[i] === 1 || occEdges[i] === 1) edgeUnion++;
-    if (maskEdges[i] === 1 && occEdges[i] === 1) edgeInter++;
+  for (let i = 0; i < maskDistanceField.contourPixels.length; i++) {
+    if (maskDistanceField.contourPixels[i] === 1 || occDistanceField.contourPixels[i] === 1) {
+      edgeUnion++;
+    }
+    if (maskDistanceField.contourPixels[i] === 1 && occDistanceField.contourPixels[i] === 1) {
+      edgeInter++;
+    }
   }
   const contourProfileScore = edgeUnion === 0 ? 0 : edgeInter / edgeUnion;
   const regionOccupancyScore =
