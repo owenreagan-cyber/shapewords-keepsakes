@@ -17,7 +17,7 @@ import {
   sanitizeWords,
   type WordEntry,
 } from "@/lib/gemini";
-import { pickBestPreset } from "@/lib/themePalettes";
+import { pickPersonalizedPreset } from "@/lib/themePalettes";
 import {
   buildMaskFromSvg,
   detectMaskOrientation,
@@ -65,6 +65,9 @@ const PRINTABLE_RESOLUTIONS = new Set<keyof typeof EXPORT_RES>([
   "print_11x14",
   "print_16x20",
 ]);
+const BEST_SHAPE_WORD_COUNT = 220;
+const PREMIUM_BATCH_FILENAME = "Class-Keepsakes.zip";
+const PREMIUM_BATCH_LAYOUT_ATTEMPTS = 3;
 
 const ORIENTATION_OUTPUT_5X10: Record<MaskOrientation, { w: number; h: number }> = {
   portrait: { w: 1500, h: 3000 },
@@ -146,7 +149,7 @@ function defaultConfig(s: Student): Config {
     preset: "Premium Print",
     resolution: "print_8x10",
     etsyMode: true,
-    wordCount: 150,
+    wordCount: BEST_SHAPE_WORD_COUNT,
     invisibleShapeMode: true,
     silhouetteSimilarityThreshold: 0.88,
     occupancyMin: 0.82,
@@ -154,6 +157,34 @@ function defaultConfig(s: Student): Config {
     occupancyMax: 0.9,
     canvasHeightFillMin: 0.7,
     canvasHeightFillMax: 0.8,
+  };
+}
+
+function getUltimatePrintConfig(s: Student, fontFamily: string): Config {
+  return {
+    ...defaultConfig(s),
+    fontFamily,
+    theme: s.theme,
+    emphasis: 3,
+    density: 100,
+    scaling: 14,
+    adherence: 94,
+    rotation: 12,
+    randomness: 8,
+    centerBias: 88,
+    silhouetteStyle: "Premium Print",
+    outlineMode: "invisible",
+    preset: "Premium Print",
+    resolution: "print_8x10",
+    etsyMode: true,
+    wordCount: BEST_SHAPE_WORD_COUNT,
+    invisibleShapeMode: true,
+    silhouetteSimilarityThreshold: 0.9,
+    occupancyMin: 0.88,
+    occupancyTarget: 0.92,
+    occupancyMax: 0.95,
+    canvasHeightFillMin: 0.72,
+    canvasHeightFillMax: 0.84,
   };
 }
 
@@ -173,6 +204,20 @@ function passesFinalQualityGate(result: PackResult, config: Config): boolean {
     result.coverage <= config.occupancyMax &&
     result.dominantNameScore >= 1.0 &&
     result.qualityPassed
+  );
+}
+
+function scorePremiumLayoutCandidate(result: PackResult, config: Config): number {
+  const qualityGateBonus = passesFinalQualityGate(result, config) ? 1000 : 0;
+  return (
+    qualityGateBonus +
+    result.silhouetteSimilarity * 500 +
+    result.contourProfileScore * 220 +
+    result.regionOccupancyScore * 180 +
+    result.widthProfileScore * 120 +
+    result.heightProfileScore * 120 +
+    result.balanceScore * 0.45 +
+    result.coverage * 100
   );
 }
 
@@ -532,24 +577,18 @@ function ShapeWordsApp() {
     setBusy(true);
     setStatus("Applying best framable settings…");
     try {
-      const preset = pickBestPreset({
+      const preset = pickPersonalizedPreset({
+        name: nameField,
         theme: active.theme,
         shape: shapeField,
         traits: traitsField,
+        words: words.slice(0, 48).map((entry) => entry.word),
         fallbackPalette: active.colorPalette,
         fallbackFont: config.fontFamily,
       });
       const nextConfig: Config = {
-        ...config,
-        etsyMode: true,
-        emphasis: 3,
-        density: 100,
-        scaling: 14,
-        adherence: 92,
-        centerBias: 85,
-        rotation: 15,
-        randomness: 10,
-        fontFamily: preset.fontFamily,
+        ...getUltimatePrintConfig(active, preset.fontFamily),
+        theme: config.theme,
       };
       setConfig(nextConfig);
       const wordsForRender =
@@ -636,17 +675,21 @@ function ShapeWordsApp() {
     setPackingProgress(null);
     setBatchProgress({ i: 0, total: students.length });
     const zip = new JSZip();
+    const batchNotes: string[] = [];
     const off = document.createElement("canvas");
     try {
       for (let i = 0; i < students.length; i++) {
         const s = students[i];
-        const studentConfig = {
-          ...defaultConfig(s),
+        const initialPreset = pickPersonalizedPreset({
+          name: s.name,
           theme: s.theme,
-          preset: s.printPreset,
-          silhouetteStyle: s.printPreset,
-        };
-        const accent = s.colorPalette[1] ?? "#D97706";
+          shape: s.shape,
+          traits: s.traits,
+          fallbackPalette: s.colorPalette,
+          fallbackFont: s.fontFamily,
+        });
+        const accent = initialPreset.palette[1] ?? s.colorPalette[1] ?? "#D97706";
+        let studentConfig = getUltimatePrintConfig(s, initialPreset.fontFamily);
 
         setBatchProgress({ i: i + 1, total: students.length });
         setStatus(`Processing Student ${i + 1} of ${students.length}`);
@@ -668,29 +711,75 @@ function ShapeWordsApp() {
             return getFallbackShapeSvg(s.shape);
           }),
         ]);
+        const normalizedWords = normalizeWordEntries(
+          s.name,
+          expansion?.words?.length ? expansion.words : seedFromTraits(s.name, s.traits),
+          s.traits,
+        );
+        const personalizedPreset = pickPersonalizedPreset({
+          name: s.name,
+          theme: s.theme,
+          shape: s.shape,
+          traits: s.traits,
+          words: normalizedWords.slice(0, 64).map((entry) => entry.word),
+          fallbackPalette: initialPreset.palette,
+          fallbackFont: initialPreset.fontFamily,
+        });
+        studentConfig = {
+          ...studentConfig,
+          fontFamily: personalizedPreset.fontFamily,
+        };
         const orientation = await detectMaskOrientation(svg);
         const mask = await buildMaskFromSvg(svg, 512);
 
+        const wordsForStudent = capWords(normalizedWords, studentConfig.wordCount, s.name);
         setPackingProgress(0);
-        const result = await renderWordArt({
-          canvas: off,
-          student: s,
-          config: studentConfig,
-          size: getCanvasSizeForResolution(studentConfig.resolution, orientation),
-          svg,
-          words: expansion?.words?.length ? expansion.words : seedFromTraits(s.name, s.traits),
-          mask,
-          onProgress: setPackingProgress,
-        });
-        if (!result || !passesFinalQualityGate(result, studentConfig)) {
-          throw new Error(`Quality gate failed for ${s.name}`);
+        let result: PackResult | null = null;
+        let bestScore = Number.NEGATIVE_INFINITY;
+        for (let attempt = 0; attempt < PREMIUM_BATCH_LAYOUT_ATTEMPTS; attempt++) {
+          if (attempt > 0) {
+            setStatus(
+              `Refining ${s.name} (${attempt + 1}/${PREMIUM_BATCH_LAYOUT_ATTEMPTS}) for premium quality`,
+            );
+          }
+          const next = await renderWordArt({
+            canvas: off,
+            student: s,
+            config: studentConfig,
+            size: getCanvasSizeForResolution(studentConfig.resolution, orientation),
+            svg,
+            words: wordsForStudent,
+            mask,
+            onProgress: setPackingProgress,
+            paletteOverride: personalizedPreset.palette,
+          });
+          if (!next) continue;
+          const score = scorePremiumLayoutCandidate(next, studentConfig);
+          if (score > bestScore) {
+            bestScore = score;
+            result = next;
+          }
+          if (passesFinalQualityGate(next, studentConfig) && next.silhouetteSimilarity >= 0.94) {
+            break;
+          }
+        }
+        if (!result) {
+          throw new Error(`Layout generation failed for ${s.name}`);
+        }
+        if (!passesFinalQualityGate(result, studentConfig)) {
+          batchNotes.push(
+            `${s.name}: rendered with the strongest local layout found, but the premium quality gate was not fully met in this environment.`,
+          );
         }
         const blob = await canvasToBlob(off, "image/jpeg", 0.95);
         zip.file(`${toSafeFilenamePart(s.name)}_WordArt_8x10_300dpi.jpg`, blob);
       }
+      if (batchNotes.length > 0) {
+        zip.file("Render-Notes.txt", `${batchNotes.join("\n")}\n`);
+      }
       setStatus("Creating ZIP...");
       const blob = await zip.generateAsync({ type: "blob" });
-      await saveBlobWithBestDownloadFlow(blob, "Class-Keepsakes.zip", "application/zip");
+      await saveBlobWithBestDownloadFlow(blob, PREMIUM_BATCH_FILENAME, "application/zip");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       setStatus("Batch failed: " + message);

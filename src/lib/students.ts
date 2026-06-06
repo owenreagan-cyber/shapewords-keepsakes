@@ -18,7 +18,7 @@ export const STUDENTS: Student[] = [
   {
     id: "1",
     name: "Abby",
-    shape: "Cute teddy bear silhouette",
+    shape: "Teddy bear front-facing",
     traits: "kind, warm, caring, sweet, gentle",
     interests: [],
     theme: "Warm Kindness",
@@ -33,7 +33,7 @@ export const STUDENTS: Student[] = [
   {
     id: "2",
     name: "Avery",
-    shape: "Graceful young girl dancer leaping, beautiful ballet silhouette",
+    shape: "Graceful girl dancer leaping",
     traits:
       "graceful, athletic, leader, creative, beautiful, honest, funny, smart, caring, friendly, fast, sweet",
     interests: [],
@@ -49,7 +49,7 @@ export const STUDENTS: Student[] = [
   {
     id: "3",
     name: "CharlieKate",
-    shape: "Cheerleader jumping with pom-poms silhouette",
+    shape: "Cheerleader jumping with pom-poms",
     traits: "energetic, loud, spirited, fun, joyful",
     interests: [],
     theme: "Energy and Leadership",
@@ -64,7 +64,7 @@ export const STUDENTS: Student[] = [
   {
     id: "4",
     name: "Dominic",
-    shape: "Cool 10 year old boy dancing silhouette",
+    shape: "Boy dancing energetically",
     traits: "performer, confident, active, cool, fun",
     interests: [],
     theme: "Performance and Confidence",
@@ -79,7 +79,7 @@ export const STUDENTS: Student[] = [
   {
     id: "5",
     name: "Elana",
-    shape: "10 year old girl leaping in dance silhouette",
+    shape: "Girl leaping in dance",
     traits: "artistic, excellent, poised, creative, joyful",
     interests: [],
     theme: "Artistic Excellence",
@@ -94,7 +94,7 @@ export const STUDENTS: Student[] = [
   {
     id: "6",
     name: "Elise",
-    shape: "10 year old girl doing ballet silhouette",
+    shape: "Girl doing ballet arabesque",
     traits: "elegant, classical, precise, beautiful, neat",
     interests: [],
     theme: "Elegance",
@@ -109,7 +109,7 @@ export const STUDENTS: Student[] = [
   {
     id: "7",
     name: "Emma",
-    shape: "Girl singing into a microphone silhouette",
+    shape: "Girl singing into microphone",
     traits: "singer, joyful, friendly, loud, happy",
     interests: [],
     theme: "Performance and Joy",
@@ -124,7 +124,7 @@ export const STUDENTS: Student[] = [
   {
     id: "8",
     name: "Evie",
-    shape: "Cute red panda silhouette",
+    shape: "Red panda sitting",
     traits: "adventurous, curious, wild, cute, playful",
     interests: [],
     theme: "Adventure",
@@ -139,7 +139,7 @@ export const STUDENTS: Student[] = [
   {
     id: "9",
     name: "Evelyn",
-    shape: "Cute dog running silhouette",
+    shape: "Dog running",
     traits: "loyal, friendly, steadfast, playful, sweet",
     interests: [],
     theme: "Loyalty and Friendship",
@@ -154,7 +154,7 @@ export const STUDENTS: Student[] = [
   {
     id: "10",
     name: "Graham",
-    shape: "10 year old boy swinging baseball bat silhouette",
+    shape: "Boy swinging baseball bat",
     traits: "baseball, captain, strong, athletic, leader",
     interests: [],
     theme: "Team Captain",
@@ -169,7 +169,7 @@ export const STUDENTS: Student[] = [
   {
     id: "11",
     name: "Grayson",
-    shape: "10 year old boy throwing a football silhouette",
+    shape: "Boy throwing football",
     traits: "football, competitive, tough, strong, athletic",
     interests: [],
     theme: "Competitive Spirit",
@@ -184,7 +184,7 @@ export const STUDENTS: Student[] = [
   {
     id: "12",
     name: "Isabelle",
-    shape: "First place ribbon medal silhouette",
+    shape: "First place ribbon",
     traits: "achiever, excellence, winner, smart, proud",
     interests: [],
     theme: "Achievement",
@@ -199,7 +199,7 @@ export const STUDENTS: Student[] = [
   {
     id: "13",
     name: "Jace",
-    shape: "Video game controller silhouette",
+    shape: "Video game controller",
     traits: "gamer, tech, logic, smart, fun",
     interests: [],
     theme: "Technology and Creativity",
@@ -214,7 +214,7 @@ export const STUDENTS: Student[] = [
   {
     id: "14",
     name: "Jack",
-    shape: "Cool eagle flying silhouette",
+    shape: "Eagle in flight",
     traits: "free, soaring, leader, cool, brave",
     interests: [],
     theme: "Freedom and Leadership",
@@ -229,7 +229,7 @@ export const STUDENTS: Student[] = [
   {
     id: "15",
     name: "Landon",
-    shape: "Cool lightning bolt silhouette",
+    shape: "Lightning bolt",
     traits: "explosive, energetic, loud, fast, cool",
     interests: [],
     theme: "Energy",
@@ -244,7 +244,7 @@ export const STUDENTS: Student[] = [
   {
     id: "16",
     name: "Logan",
-    shape: "Cool robot or gear silhouette",
+    shape: "Robot with gears",
     traits: "innovator, gear, engineering, smart, builder",
     interests: [],
     theme: "Innovation",
@@ -259,7 +259,7 @@ export const STUDENTS: Student[] = [
   {
     id: "17",
     name: "Lucy",
-    shape: "Beautiful horse galloping silhouette",
+    shape: "Horse galloping",
     traits: "strong, graceful, wild, fast, free",
     interests: [],
     theme: "Strength and Grace",
@@ -274,7 +274,7 @@ export const STUDENTS: Student[] = [
   {
     id: "18",
     name: "Madison",
-    shape: "10 year old girl doing gymnastics tumbling silhouette",
+    shape: "Girl doing gymnastics tumbling",
     traits: "gymnast, determined, flexible, strong, brave",
     interests: [],
     theme: "Determination",
@@ -289,7 +289,7 @@ export const STUDENTS: Student[] = [
   {
     id: "19",
     name: "Max",
-    shape: "Blocky pixel game character silhouette",
+    shape: "Pixel game character",
     traits: "creative, funny, pixels, builder, silly",
     interests: [],
     theme: "Creativity and Humor",
@@ -304,7 +304,7 @@ export const STUDENTS: Student[] = [
   {
     id: "20",
     name: "Mia",
-    shape: "Cute snake silhouette",
+    shape: "Snake coiled",
     traits: "curious, sneaky, clever, fast, smart",
     interests: [],
     theme: "Curiosity",
@@ -319,7 +319,7 @@ export const STUDENTS: Student[] = [
   {
     id: "21",
     name: "Misha",
-    shape: "Open laptop computer silhouette",
+    shape: "Laptop computer open",
     traits: "laptop, coder, quiet, smart, creative",
     interests: [],
     theme: "Innovation",
@@ -334,7 +334,7 @@ export const STUDENTS: Student[] = [
   {
     id: "22",
     name: "Nixon",
-    shape: "Football helmet silhouette",
+    shape: "Football helmet",
     traits: "football, helmet, strong, tough, brave",
     interests: [],
     theme: "Strength",
@@ -349,7 +349,7 @@ export const STUDENTS: Student[] = [
   {
     id: "23",
     name: "Stephen",
-    shape: "10 year old boy kicking a soccer ball silhouette",
+    shape: "Boy kicking soccer ball",
     traits: "soccer, teamwork, fast, runner, strong",
     interests: [],
     theme: "Teamwork",
@@ -364,7 +364,7 @@ export const STUDENTS: Student[] = [
   {
     id: "24",
     name: "Torren",
-    shape: "10 year old boy saving a goalie net silhouette",
+    shape: "Boy making a goalie save",
     traits: "goalie, save, determined, brave, quick",
     interests: [],
     theme: "Determination",
@@ -379,7 +379,7 @@ export const STUDENTS: Student[] = [
   {
     id: "25",
     name: "Wayde",
-    shape: "10 year old boy playing ice hockey silhouette",
+    shape: "Boy playing ice hockey",
     traits: "hockey, strong, character, fast, cool",
     interests: [],
     theme: "Strength and Character",
