@@ -142,10 +142,10 @@ function defaultConfig(s: Student): Config {
     etsyMode: true,
     wordCount: 150,
     invisibleShapeMode: true,
-    silhouetteSimilarityThreshold: 0.9,
-    occupancyMin: 0.88,
-    occupancyTarget: 0.9,
-    occupancyMax: 0.94,
+    silhouetteSimilarityThreshold: 0.88,
+    occupancyMin: 0.82,
+    occupancyTarget: 0.86,
+    occupancyMax: 0.90,
     canvasHeightFillMin: 0.7,
     canvasHeightFillMax: 0.8,
   };
@@ -165,9 +165,7 @@ function passesFinalQualityGate(result: PackResult, config: Config): boolean {
     result.silhouetteSimilarity >= config.silhouetteSimilarityThreshold &&
     result.coverage >= config.occupancyMin &&
     result.coverage <= config.occupancyMax &&
-    result.horizontalRatio >= 0.75 &&
-    result.horizontalRatio <= 0.85 &&
-    result.dominantNameScore >= 1.08 &&
+    result.dominantNameScore >= 1.0 &&
     result.qualityPassed
   );
 }

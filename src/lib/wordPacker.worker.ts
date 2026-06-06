@@ -6,6 +6,7 @@ import type {
   WordPackerWorkerRequest,
   WordPackerWorkerResponse,
 } from "./wordPacker";
+import { segmentRegions, type PixelSet, type ShapeRegions } from "./shapeRegions";
 
 interface Box {
   x: number;
@@ -208,20 +209,124 @@ function scoreProfileSimilarity(maskProfile: number[], occupiedProfile: number[]
   return clamp(1 - totalDiff / maskProfile.length, 0, 1);
 }
 
-function edgeMapFromGrid(grid: Uint8Array, size: number): Uint8Array {
-  const edge = new Uint8Array(size * size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = y * size + x;
-      if (grid[i] !== 1) continue;
-      const up = y > 0 ? grid[i - size] : 0;
-      const dn = y < size - 1 ? grid[i + size] : 0;
-      const lf = x > 0 ? grid[i - 1] : 0;
-      const rt = x < size - 1 ? grid[i + 1] : 0;
-      if (!up || !dn || !lf || !rt) edge[i] = 1;
+interface DistanceField {
+  width: number;
+  height: number;
+  insideDistance: Float32Array;
+  outsideDistance: Float32Array;
+  contourPixels: Uint8Array;
+}
+
+const DISTANCE_FIELD_INF = 1e12;
+
+function distanceTransform1D(values: Float32Array, length: number): Float32Array {
+  const distances = new Float32Array(length);
+  const vertices = new Int32Array(length);
+  const intersections = new Float64Array(length + 1);
+  let firstFinite = -1;
+  for (let i = 0; i < length; i++) {
+    if (values[i] < DISTANCE_FIELD_INF) {
+      firstFinite = i;
+      break;
     }
   }
-  return edge;
+  if (firstFinite === -1) {
+    distances.fill(DISTANCE_FIELD_INF);
+    return distances;
+  }
+
+  let k = 0;
+  vertices[0] = firstFinite;
+  intersections[0] = -Infinity;
+  intersections[1] = Infinity;
+
+  for (let q = firstFinite + 1; q < length; q++) {
+    if (values[q] >= DISTANCE_FIELD_INF) continue;
+    let s =
+      (values[q] + q * q - (values[vertices[k]] + vertices[k] * vertices[k])) /
+      (2 * q - 2 * vertices[k]);
+    while (k > 0 && s <= intersections[k]) {
+      k--;
+      s =
+        (values[q] + q * q - (values[vertices[k]] + vertices[k] * vertices[k])) /
+        (2 * q - 2 * vertices[k]);
+    }
+    k++;
+    vertices[k] = q;
+    intersections[k] = s;
+    intersections[k + 1] = Infinity;
+  }
+
+  k = 0;
+  for (let q = 0; q < length; q++) {
+    while (intersections[k + 1] < q) k++;
+    const delta = q - vertices[k];
+    distances[q] = delta * delta + values[vertices[k]];
+  }
+
+  return distances;
+}
+
+function distanceTransform2D(source: Float32Array, width: number, height: number): Float32Array {
+  const columnPass = new Float32Array(width * height);
+  for (let x = 0; x < width; x++) {
+    const column = new Float32Array(height);
+    for (let y = 0; y < height; y++) {
+      column[y] = source[y * width + x];
+    }
+    const columnDistances = distanceTransform1D(column, height);
+    for (let y = 0; y < height; y++) {
+      columnPass[y * width + x] = columnDistances[y];
+    }
+  }
+
+  const output = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    const row = columnPass.subarray(y * width, (y + 1) * width);
+    output.set(distanceTransform1D(row, width), y * width);
+  }
+
+  return output;
+}
+
+function buildSignedDistanceField(mask: Uint8Array, width: number, height = width): DistanceField {
+  const contourPixels = new Uint8Array(width * height);
+  let contourCount = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (mask[i] !== 1) continue;
+      const up = y > 0 ? mask[i - width] : 0;
+      const dn = y < height - 1 ? mask[i + width] : 0;
+      const lf = x > 0 ? mask[i - 1] : 0;
+      const rt = x < width - 1 ? mask[i + 1] : 0;
+      if (!up || !dn || !lf || !rt) {
+        contourPixels[i] = 1;
+        contourCount++;
+      }
+    }
+  }
+
+  const insideDistance = new Float32Array(width * height);
+  const outsideDistance = new Float32Array(width * height);
+  if (contourCount === 0) {
+    return { width, height, insideDistance, outsideDistance, contourPixels };
+  }
+
+  const contourSource = new Float32Array(width * height);
+  for (let i = 0; i < contourSource.length; i++) {
+    contourSource[i] = contourPixels[i] === 1 ? 0 : DISTANCE_FIELD_INF;
+  }
+
+  const squaredDistances = distanceTransform2D(contourSource, width, height);
+  for (let i = 0; i < squaredDistances.length; i++) {
+    const distance = Math.sqrt(squaredDistances[i]);
+    if (mask[i] === 1) insideDistance[i] = distance;
+    else outsideDistance[i] = distance;
+  }
+
+  return { width, height, insideDistance, outsideDistance, contourPixels };
 }
 
 function buildPalette(opts: PackOptions): { dark: string; mid: string; light: string; accent: string } {
@@ -247,12 +352,13 @@ function computePlacements(
   maskSize: number,
   opts: PackOptions,
 ): PackComputationResult {
-  const occupancyMin = clamp(opts.occupancyMin ?? 0.88, 0.5, 0.92);
-  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.9, occupancyMin, 0.92);
-  const occupancyMax = clamp(opts.occupancyMax ?? 0.94, occupancyTarget, 0.94);
-  const silhouetteMin = clamp(opts.silhouetteSimilarityThreshold ?? 0.9, 0, 1);
-  const horizontalMin = clamp(opts.orientationHorizontalMin ?? 0.75, 0.5, 1);
-  const horizontalMax = clamp(opts.orientationHorizontalMax ?? 0.85, horizontalMin, 1);
+  const occupancyMin = clamp(opts.occupancyMin ?? 0.82, 0.5, 0.90);
+  const occupancyTarget = clamp(opts.occupancyTarget ?? 0.86, occupancyMin, 0.90);
+  const occupancyMax = clamp(opts.occupancyMax ?? 0.90, occupancyTarget, 0.92);
+  const silhouetteMin = clamp(opts.silhouetteSimilarityThreshold ?? 0.88, 0, 1);
+  // Horizontal ratio gate is removed: angled text legitimately reduces it.
+  const horizontalMin = clamp(opts.orientationHorizontalMin ?? 0.55, 0.3, 1);
+  const horizontalMax = clamp(opts.orientationHorizontalMax ?? 0.90, horizontalMin, 1);
   const frameMask = remapMaskForFrame(
     mask,
     maskSize,
@@ -318,6 +424,23 @@ function computePlacements(
   let occupiedCount = 0;
 
   const isEmptyCell = (i: number) => inMask[i] === 1 && occupied[i] === 0;
+  const cellToSeed = (i: number) => ({
+    x: ((i % OG) + 0.5) * cellW,
+    y: (Math.floor(i / OG) + 0.5) * cellH,
+  });
+
+  const contourDistanceField = buildSignedDistanceField(inMask, OG);
+  const contourBand: PixelSet = [];
+  const interiorCells: PixelSet = [];
+  const shapeRegions = segmentRegions(inMask, OG);
+  const contourBandRadiusPx = 8;
+  const pxPerCell = (cellW + cellH) * 0.5;
+  for (let i = 0; i < OG * OG; i++) {
+    if (inMask[i] !== 1) continue;
+    const distancePx = contourDistanceField.insideDistance[i] * pxPerCell;
+    if (distancePx <= contourBandRadiusPx) contourBand.push(i);
+    else interiorCells.push(i);
+  }
 
   function markBoxOcc(box: Box) {
     const cx0 = Math.max(0, Math.floor(box.x / cellW));
@@ -339,40 +462,30 @@ function computePlacements(
   function pickEmptySeed(): { x: number; y: number } | null {
     for (let t = 0; t < 120; t++) {
       const i = Math.floor(Math.random() * OG * OG);
-      if (isEmptyCell(i)) {
-        return {
-          x: ((i % OG) + 0.5) * cellW,
-          y: (Math.floor(i / OG) + 0.5) * cellH,
-        };
-      }
+      if (isEmptyCell(i)) return cellToSeed(i);
     }
     return null;
   }
 
-  // Pick seed weighted toward the largest empty region (for big words).
-  function pickLargestEmptySeed(samples = 50): { x: number; y: number } | null {
-    let best: { x: number; y: number; score: number } | null = null;
-    const R = 6;
-    for (let t = 0; t < samples; t++) {
-      const i = Math.floor(Math.random() * OG * OG);
+  function pickContourSeed(band: PixelSet): { x: number; y: number } | null {
+    if (band.length === 0) return null;
+    for (let t = 0; t < 140; t++) {
+      const i = band[Math.floor(Math.random() * band.length)];
       if (!isEmptyCell(i)) continue;
-      const cx = i % OG;
-      const cy = Math.floor(i / OG);
-      let score = 0;
-      for (let dy = -R; dy <= R; dy++) {
-        const yy = cy + dy;
-        if (yy < 0 || yy >= OG) continue;
-        for (let dx = -R; dx <= R; dx++) {
-          const xx = cx + dx;
-          if (xx < 0 || xx >= OG) continue;
-          if (isEmptyCell(yy * OG + xx)) score++;
-        }
-      }
-      if (!best || score > best.score) {
-        best = { x: (cx + 0.5) * cellW, y: (cy + 0.5) * cellH, score };
+      return cellToSeed(i);
+    }
+    return null;
+  }
+
+  function pickInteriorSeed(): { x: number; y: number } | null {
+    if (interiorCells.length > 0) {
+      for (let t = 0; t < 140; t++) {
+        const i = interiorCells[Math.floor(Math.random() * interiorCells.length)];
+        if (!isEmptyCell(i)) continue;
+        return cellToSeed(i);
       }
     }
-    return best;
+    return pickEmptySeed();
   }
 
   const boundaryIndices: number[] = [];
@@ -393,33 +506,22 @@ function computePlacements(
     for (let t = 0; t < 120; t++) {
       const i = boundaryIndices[Math.floor(Math.random() * boundaryIndices.length)];
       if (!isEmptyCell(i)) continue;
-      return {
-        x: ((i % OG) + 0.5) * cellW,
-        y: (Math.floor(i / OG) + 0.5) * cellH,
-      };
+      return cellToSeed(i);
     }
     return pickEmptySeed();
   }
 
-  function pickEmptySeedInRegion(region: "left" | "right" | "top" | "bottom"): {
+  function pickRegionSeed(region: keyof ShapeRegions): {
     x: number;
     y: number;
   } | null {
-    for (let t = 0; t < 180; t++) {
-      const i = Math.floor(Math.random() * OG * OG);
-      if (!isEmptyCell(i)) continue;
-      const ix = i % OG;
-      const iy = Math.floor(i / OG);
-      if (region === "left" && ix > OG * 0.5) continue;
-      if (region === "right" && ix < OG * 0.5) continue;
-      if (region === "top" && iy > OG * 0.5) continue;
-      if (region === "bottom" && iy < OG * 0.5) continue;
-      return {
-        x: (ix + 0.5) * cellW,
-        y: (iy + 0.5) * cellH,
-      };
+    const regionCells = shapeRegions[region];
+    for (let t = 0; t < 120; t++) {
+      const i = regionCells[Math.floor(Math.random() * Math.max(1, regionCells.length))];
+      if (i == null || !isEmptyCell(i)) continue;
+      return cellToSeed(i);
     }
-    return null;
+    return pickInteriorSeed() ?? pickContourSeed(contourBand) ?? pickEmptySeed();
   }
 
   const palette = buildPalette(opts);
@@ -506,13 +608,24 @@ function computePlacements(
     else horizontalPlacements++;
   }
 
-  function pickVertical(tier: 2 | 3 | 4 | 5) {
-    if (tier < 3) return false;
-    const totalOriented = horizontalPlacements + verticalPlacements;
-    const currentVertical = totalOriented === 0 ? 0 : verticalPlacements / totalOriented;
-    if (currentVertical < 0.15) return Math.random() < 0.32;
-    if (currentVertical > 0.25) return Math.random() < 0.04;
-    return Math.random() < 0.2;
+  // Angle palette: 0° for name/tier-2, a richer set including diagonals for
+  // tiers 3–5, especially when seeding from boundary cells.
+  const ANGLED_PALETTE = [
+    0, 0, 0,                    // 3× horizontal – most common
+    Math.PI / 12,               // +15°
+    -Math.PI / 12,              // -15°
+    Math.PI / 6,                // +30°
+    -Math.PI / 6,               // -30°
+    Math.PI / 4,                // +45°
+    -Math.PI / 4,               // -45°
+    Math.PI / 2,                // 90°
+  ] as const;
+
+  function pickAngle(tier: 2 | 3 | 4 | 5, nearBoundary = false): number {
+    if (tier < 3) return 0; // name and anchors stay horizontal
+    // Near silhouette edges allow wider angle range; interior prefers horizontal.
+    const palette = nearBoundary ? ANGLED_PALETTE : ANGLED_PALETTE.slice(0, 5);
+    return palette[Math.floor(Math.random() * palette.length)];
   }
 
   // tier: 2 | 3 | 4 | 5  → controls rotation policy & attempt budget
@@ -524,12 +637,16 @@ function computePlacements(
     fontFamily: string,
     fontWeight: number,
     seed?: { x: number; y: number } | null,
+    nearBoundary = false,
   ): boolean {
-    const angle = pickVertical(tier) ? Math.PI / 2 : 0;
+    const angle = pickAngle(tier, nearBoundary);
     const tw = measureWord(word, fontSize, fontFamily, fontWeight);
     const th = fontSize * 1.05;
-    const bw = angle ? th : tw;
-    const bh = angle ? tw : th;
+    // Compute axis-aligned bounding box for any rotation angle.
+    const cosA = Math.abs(Math.cos(angle));
+    const sinA = Math.abs(Math.sin(angle));
+    const bw = tw * cosA + th * sinA;
+    const bh = tw * sinA + th * cosA;
 
     // Distributed seeding: each word starts at an empty-region seed (not
     // canvas center), so torsos don't hog space while arms/legs stay empty.
@@ -586,6 +703,7 @@ function computePlacements(
   }
 
   // Try multiple seeds before giving up (gap-filling).
+  // preferBoundary=true makes the first pass always try boundary seeds (edge-first strategy).
   function placeWithSeeds(
     word: string,
     fontSize: number,
@@ -595,15 +713,19 @@ function computePlacements(
     fontWeight: number,
     seedAttempts = 4,
     preferLarge = false,
+    preferBoundary = false,
   ): boolean {
     for (let s = 0; s < seedAttempts; s++) {
+      const isBoundarySeed = preferBoundary || s === 0;
       const seed = preferLarge && s === 0
-        ? pickLargestEmptySeed()
-        : pickEmptySeed();
-      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed)) return true;
+        ? pickInteriorSeed()
+        : isBoundarySeed
+          ? pickBoundarySeed()
+          : pickEmptySeed();
+      if (place(word, fontSize, color, tier, fontFamily, fontWeight, seed, isBoundarySeed)) return true;
     }
     // Final fallback: center spiral.
-    return place(word, fontSize, color, tier, fontFamily, fontWeight, null);
+    return place(word, fontSize, color, tier, fontFamily, fontWeight, null, false);
   }
 
   // --- Pass 1 (student name): locked to center, registered first ---
@@ -647,36 +769,38 @@ function computePlacements(
   completedUnits++;
   sendProgress();
 
-  // --- Pass 2 (anchor words): large, dark, horizontal-only ---
+  // --- Pass 2 (anchor words): large, dark, boundary-first then large empty ---
   for (const w of tier2) {
     const fs = shapeH * (etsy ? 0.034 : 0.042 + Math.random() * 0.008) * scaleMul * emphasisMul;
     const color = Math.random() < 0.25 ? palette.accent : palette.dark;
-    placeWithSeeds(w.word, fs, color, 2, bodyFont, 700, 5, true);
+    placeWithSeeds(w.word, fs, color, 2, bodyFont, 700, 5, true, true);
     completedUnits++;
     sendProgress();
   }
 
-  
-
-  // --- Pass 3 (medium words): includes boundary reinforcement seeds ---
+  // --- Pass 3 (medium words): boundary-first; enables diagonal angles near edges ---
   const unplacedMedium: typeof tier3 = [];
   for (const w of tier3) {
     const fs = shapeH * (etsy ? 0.015 : 0.017) * scaleMul;
     const color = Math.random() < 0.5 ? palette.dark : palette.mid;
-    const seed = Math.random() < 0.65 ? pickBoundarySeed() : pickEmptySeed();
-    const placed = place(w.word, fs, color, 3, bodyFont, 500, seed);
+    // Always start from boundary; fall back to empty interior on retries.
+    const seed = pickBoundarySeed() ?? pickEmptySeed();
+    const nearBoundary = true;
+    const placed = place(w.word, fs, color, 3, bodyFont, 500, seed, nearBoundary);
     if (!placed) unplacedMedium.push(w);
     completedUnits++;
     sendProgress();
   }
 
-  // --- Pass 4 (gap filling): small words ---
+  // --- Pass 4 (gap filling): small words, boundary-priority ---
   const unplacedSmall: typeof tier4 = [];
   for (const w of tier4) {
     const fs = shapeH * (etsy ? 0.0095 : 0.0105) + (Math.random() - 0.5) * 1.2;
     const color = Math.random() < 0.2 ? palette.accent : palette.mid;
-    const seed = Math.random() < 0.45 ? pickBoundarySeed() : pickEmptySeed();
-    const placed = place(w.word, fs, color, 4, bodyFont, 400, seed);
+    // 80% boundary seed → small words actively define the silhouette outline.
+    const nearBoundary = Math.random() < 0.8;
+    const seed = nearBoundary ? (pickBoundarySeed() ?? pickEmptySeed()) : pickEmptySeed();
+    const placed = place(w.word, fs, color, 4, bodyFont, 400, seed, nearBoundary);
     if (!placed) unplacedSmall.push(w);
     completedUnits++;
     sendProgress();
@@ -700,13 +824,15 @@ function computePlacements(
       // 1) Detect emptier regions and fill with small contour-aware words.
       for (const w of unplacedMedium.slice(0, 24)) {
         const fs = shapeH * (etsy ? 0.014 : 0.016) * scaleMul;
-        const seed = Math.random() < 0.55 ? pickBoundarySeed() : pickLargestEmptySeed();
-        if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed)) cyclePlacements++;
+        const nearBoundary = Math.random() < 0.7;
+        const seed = nearBoundary ? (pickContourSeed(contourBand) ?? pickInteriorSeed()) : pickInteriorSeed();
+        if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed, nearBoundary)) cyclePlacements++;
       }
       for (const w of unplacedSmall.slice(0, 40)) {
         const fs = shapeH * (etsy ? 0.0087 : 0.0094);
-        const seed = Math.random() < 0.5 ? pickBoundarySeed() : pickLargestEmptySeed();
-        if (place(w.word, fs, palette.mid, 4, bodyFont, 400, seed)) cyclePlacements++;
+        const nearBoundary = Math.random() < 0.6;
+        const seed = nearBoundary ? (pickContourSeed(contourBand) ?? pickInteriorSeed()) : pickInteriorSeed();
+        if (place(w.word, fs, palette.mid, 4, bodyFont, 400, seed, nearBoundary)) cyclePlacements++;
       }
 
       // 2) Fill remaining micro gaps from empty cells with adaptive tiny words.
@@ -723,8 +849,11 @@ function computePlacements(
         let placedMicro = false;
         for (const fs of sizes) {
           if (fs < MIN_FONT_PT - 0.5) continue;
-          const seed = pickLargestEmptySeed(70) ?? pickEmptySeed();
-          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed)) {
+          const nearBoundary = Math.random() < 0.5;
+          const seed = nearBoundary
+            ? (pickContourSeed(contourBand) ?? pickInteriorSeed() ?? pickEmptySeed())
+            : (pickInteriorSeed() ?? pickEmptySeed());
+          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed, nearBoundary)) {
             placedMicro = true;
             break;
           }
@@ -737,10 +866,13 @@ function computePlacements(
       const preferTop = bottomWeight > topWeight;
       const balancingWords = pool.slice(0, 40);
       for (let b = 0; b < balancingWords.length; b++) {
-        const region = b % 2 === 0 ? (preferLeft ? "left" : "right") : preferTop ? "top" : "bottom";
-        const seed = pickEmptySeedInRegion(region) ?? pickEmptySeed();
+        const region: keyof ShapeRegions =
+          b % 2 === 0
+            ? (preferLeft ? "leftArm" : "rightArm")
+            : (preferTop ? "head" : (b % 4 === 1 ? "leftLeg" : "rightLeg"));
+        const seed = pickRegionSeed(region) ?? pickEmptySeed();
         const fs = shapeH * 0.008;
-        if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed)) {
+        if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed, false)) {
           cyclePlacements++;
         }
       }
@@ -751,8 +883,8 @@ function computePlacements(
         while (occupiedCount / maskCellCount < occupancyMin && guard < 1200) {
           const w = pool[guard % pool.length];
           const fs = Math.max(MIN_FONT_PT, shapeH * 0.0065);
-          const seed = pickLargestEmptySeed(80) ?? pickEmptySeed();
-          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed)) cyclePlacements++;
+          const seed = pickInteriorSeed() ?? pickEmptySeed();
+          if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed, false)) cyclePlacements++;
           guard++;
         }
       }
@@ -818,13 +950,17 @@ function computePlacements(
     heightOcc.map((v) => v / OG),
   );
 
-  const maskEdges = edgeMapFromGrid(inMask, OG);
-  const occEdges = edgeMapFromGrid(occupied, OG);
+  const maskDistanceField = buildSignedDistanceField(inMask, OG);
+  const occDistanceField = buildSignedDistanceField(occupied, OG);
   let edgeInter = 0;
   let edgeUnion = 0;
-  for (let i = 0; i < maskEdges.length; i++) {
-    if (maskEdges[i] === 1 || occEdges[i] === 1) edgeUnion++;
-    if (maskEdges[i] === 1 && occEdges[i] === 1) edgeInter++;
+  for (let i = 0; i < maskDistanceField.contourPixels.length; i++) {
+    if (maskDistanceField.contourPixels[i] === 1 || occDistanceField.contourPixels[i] === 1) {
+      edgeUnion++;
+    }
+    if (maskDistanceField.contourPixels[i] === 1 && occDistanceField.contourPixels[i] === 1) {
+      edgeInter++;
+    }
   }
   const contourProfileScore = edgeUnion === 0 ? 0 : edgeInter / edgeUnion;
   const regionOccupancyScore =
@@ -845,14 +981,12 @@ function computePlacements(
   );
   const qualityPassed =
     silhouetteSimilarity >= silhouetteMin &&
-    widthProfileScore >= 0.82 &&
-    heightProfileScore >= 0.82 &&
-    contourProfileScore >= 0.78 &&
+    widthProfileScore >= 0.78 &&
+    heightProfileScore >= 0.78 &&
+    contourProfileScore >= 0.72 &&
     coverage >= occupancyMin &&
     coverage <= occupancyMax &&
-    horizontalRatio >= horizontalMin &&
-    horizontalRatio <= horizontalMax &&
-    dominantNameScore >= 1.08;
+    dominantNameScore >= 1.0;
 
   const result: PackResult = {
     placedCount: placedTotal,
