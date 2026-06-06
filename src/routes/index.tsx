@@ -611,8 +611,9 @@ function ShapeWordsApp() {
         await new Promise((r) => setTimeout(r, 1600));
         return;
       }
-      const data = canvas.toDataURL("image/jpeg", 0.95);
-      triggerDownload(data, `${nameField}_WordArt_5x10_300dpi.jpg`);
+      const filename = `${toSafeFilenamePart(nameField)}_WordArt_5x10_300dpi.jpg`;
+      const blob = await canvasToBlob(canvas, "image/jpeg", 0.95);
+      await saveBlobWithBestDownloadFlow(blob, filename, "image/jpeg");
     } finally {
       setStatus(null);
     }
@@ -678,7 +679,7 @@ function ShapeWordsApp() {
       }
       setStatus("Creating ZIP...");
       const blob = await zip.generateAsync({ type: "blob" });
-      saveAs(blob, "Class-Keepsakes.zip");
+      await saveBlobWithBestDownloadFlow(blob, "Class-Keepsakes.zip", "application/zip");
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       setStatus("Batch failed: " + message);
@@ -1165,6 +1166,64 @@ function triggerDownload(href: string, filename: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+type SaveFilePickerOptions = {
+  suggestedName?: string;
+  types?: Array<{
+    description?: string;
+    accept: Record<string, string[]>;
+  }>;
+};
+
+type SaveFilePickerWritable = {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+};
+
+type SaveFilePickerHandle = {
+  createWritable(): Promise<SaveFilePickerWritable>;
+};
+
+async function saveBlobWithBestDownloadFlow(blob: Blob, filename: string, mimeType: string) {
+  const pickerWindow = window as Window & {
+    showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<SaveFilePickerHandle>;
+  };
+
+  if (pickerWindow.showSaveFilePicker) {
+    try {
+      const ext = filename.includes(".") ? filename.slice(filename.lastIndexOf(".")) : "";
+      const handle = await pickerWindow.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description: "Download file",
+            accept: { [mimeType]: ext ? [ext] : [] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+    }
+  }
+
+  if (typeof URL !== "undefined" && URL.createObjectURL) {
+    const url = URL.createObjectURL(blob);
+    try {
+      triggerDownload(url, filename);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return;
+  }
+
+  saveAs(blob, filename);
 }
 
 async function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
