@@ -14,6 +14,8 @@ interface Box {
   h: number;
 }
 
+type PixelSet = number[];
+
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 function maskAt(mask: Uint8Array, maskSize: number, nx: number, ny: number): boolean {
@@ -423,6 +425,22 @@ function computePlacements(
   let occupiedCount = 0;
 
   const isEmptyCell = (i: number) => inMask[i] === 1 && occupied[i] === 0;
+  const cellToSeed = (i: number) => ({
+    x: ((i % OG) + 0.5) * cellW,
+    y: (Math.floor(i / OG) + 0.5) * cellH,
+  });
+
+  const contourDistanceField = buildSignedDistanceField(inMask, OG);
+  const contourBand: PixelSet = [];
+  const interiorCells: PixelSet = [];
+  const contourBandRadiusPx = 8;
+  const pxPerCell = (cellW + cellH) * 0.5;
+  for (let i = 0; i < OG * OG; i++) {
+    if (inMask[i] !== 1) continue;
+    const distancePx = contourDistanceField.insideDistance[i] * pxPerCell;
+    if (distancePx <= contourBandRadiusPx) contourBand.push(i);
+    else interiorCells.push(i);
+  }
 
   function markBoxOcc(box: Box) {
     const cx0 = Math.max(0, Math.floor(box.x / cellW));
@@ -444,40 +462,30 @@ function computePlacements(
   function pickEmptySeed(): { x: number; y: number } | null {
     for (let t = 0; t < 120; t++) {
       const i = Math.floor(Math.random() * OG * OG);
-      if (isEmptyCell(i)) {
-        return {
-          x: ((i % OG) + 0.5) * cellW,
-          y: (Math.floor(i / OG) + 0.5) * cellH,
-        };
-      }
+      if (isEmptyCell(i)) return cellToSeed(i);
     }
     return null;
   }
 
-  // Pick seed weighted toward the largest empty region (for big words).
-  function pickLargestEmptySeed(samples = 50): { x: number; y: number } | null {
-    let best: { x: number; y: number; score: number } | null = null;
-    const R = 6;
-    for (let t = 0; t < samples; t++) {
-      const i = Math.floor(Math.random() * OG * OG);
+  function pickContourSeed(band: PixelSet): { x: number; y: number } | null {
+    if (band.length === 0) return null;
+    for (let t = 0; t < 140; t++) {
+      const i = band[Math.floor(Math.random() * band.length)];
       if (!isEmptyCell(i)) continue;
-      const cx = i % OG;
-      const cy = Math.floor(i / OG);
-      let score = 0;
-      for (let dy = -R; dy <= R; dy++) {
-        const yy = cy + dy;
-        if (yy < 0 || yy >= OG) continue;
-        for (let dx = -R; dx <= R; dx++) {
-          const xx = cx + dx;
-          if (xx < 0 || xx >= OG) continue;
-          if (isEmptyCell(yy * OG + xx)) score++;
-        }
-      }
-      if (!best || score > best.score) {
-        best = { x: (cx + 0.5) * cellW, y: (cy + 0.5) * cellH, score };
+      return cellToSeed(i);
+    }
+    return null;
+  }
+
+  function pickInteriorSeed(): { x: number; y: number } | null {
+    if (interiorCells.length > 0) {
+      for (let t = 0; t < 140; t++) {
+        const i = interiorCells[Math.floor(Math.random() * interiorCells.length)];
+        if (!isEmptyCell(i)) continue;
+        return cellToSeed(i);
       }
     }
-    return best;
+    return pickEmptySeed();
   }
 
   const boundaryIndices: number[] = [];
@@ -498,31 +506,40 @@ function computePlacements(
     for (let t = 0; t < 120; t++) {
       const i = boundaryIndices[Math.floor(Math.random() * boundaryIndices.length)];
       if (!isEmptyCell(i)) continue;
-      return {
-        x: ((i % OG) + 0.5) * cellW,
-        y: (Math.floor(i / OG) + 0.5) * cellH,
-      };
+      return cellToSeed(i);
     }
     return pickEmptySeed();
   }
 
-  function pickEmptySeedInRegion(region: "left" | "right" | "top" | "bottom"): {
+  function pickRegionSeed(region: "left" | "right" | "top" | "bottom"): {
     x: number;
     y: number;
   } | null {
+    const inRegion = (index: number) => {
+      const ix = index % OG;
+      const iy = Math.floor(index / OG);
+      if (region === "left" && ix > OG * 0.5) return false;
+      if (region === "right" && ix < OG * 0.5) return false;
+      if (region === "top" && iy > OG * 0.5) return false;
+      if (region === "bottom" && iy < OG * 0.5) return false;
+      return true;
+    };
+
+    for (let t = 0; t < 120; t++) {
+      const i = interiorCells[Math.floor(Math.random() * Math.max(1, interiorCells.length))];
+      if (i == null || !inRegion(i) || !isEmptyCell(i)) continue;
+      return cellToSeed(i);
+    }
+    for (let t = 0; t < 120; t++) {
+      const i = contourBand[Math.floor(Math.random() * Math.max(1, contourBand.length))];
+      if (i == null || !inRegion(i) || !isEmptyCell(i)) continue;
+      return cellToSeed(i);
+    }
     for (let t = 0; t < 180; t++) {
       const i = Math.floor(Math.random() * OG * OG);
       if (!isEmptyCell(i)) continue;
-      const ix = i % OG;
-      const iy = Math.floor(i / OG);
-      if (region === "left" && ix > OG * 0.5) continue;
-      if (region === "right" && ix < OG * 0.5) continue;
-      if (region === "top" && iy > OG * 0.5) continue;
-      if (region === "bottom" && iy < OG * 0.5) continue;
-      return {
-        x: (ix + 0.5) * cellW,
-        y: (iy + 0.5) * cellH,
-      };
+      if (!inRegion(i)) continue;
+      return cellToSeed(i);
     }
     return null;
   }
@@ -721,7 +738,7 @@ function computePlacements(
     for (let s = 0; s < seedAttempts; s++) {
       const isBoundarySeed = preferBoundary || s === 0;
       const seed = preferLarge && s === 0
-        ? pickLargestEmptySeed()
+        ? pickInteriorSeed()
         : isBoundarySeed
           ? pickBoundarySeed()
           : pickEmptySeed();
@@ -828,13 +845,13 @@ function computePlacements(
       for (const w of unplacedMedium.slice(0, 24)) {
         const fs = shapeH * (etsy ? 0.014 : 0.016) * scaleMul;
         const nearBoundary = Math.random() < 0.7;
-        const seed = nearBoundary ? (pickBoundarySeed() ?? pickLargestEmptySeed()) : pickLargestEmptySeed();
+        const seed = nearBoundary ? (pickContourSeed(contourBand) ?? pickInteriorSeed()) : pickInteriorSeed();
         if (place(w.word, fs, palette.dark, 3, bodyFont, 600, seed, nearBoundary)) cyclePlacements++;
       }
       for (const w of unplacedSmall.slice(0, 40)) {
         const fs = shapeH * (etsy ? 0.0087 : 0.0094);
         const nearBoundary = Math.random() < 0.6;
-        const seed = nearBoundary ? (pickBoundarySeed() ?? pickLargestEmptySeed()) : pickLargestEmptySeed();
+        const seed = nearBoundary ? (pickContourSeed(contourBand) ?? pickInteriorSeed()) : pickInteriorSeed();
         if (place(w.word, fs, palette.mid, 4, bodyFont, 400, seed, nearBoundary)) cyclePlacements++;
       }
 
@@ -853,7 +870,9 @@ function computePlacements(
         for (const fs of sizes) {
           if (fs < MIN_FONT_PT - 0.5) continue;
           const nearBoundary = Math.random() < 0.5;
-          const seed = nearBoundary ? (pickBoundarySeed() ?? pickLargestEmptySeed(70) ?? pickEmptySeed()) : (pickLargestEmptySeed(70) ?? pickEmptySeed());
+          const seed = nearBoundary
+            ? (pickContourSeed(contourBand) ?? pickInteriorSeed() ?? pickEmptySeed())
+            : (pickInteriorSeed() ?? pickEmptySeed());
           if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed, nearBoundary)) {
             placedMicro = true;
             break;
@@ -868,7 +887,7 @@ function computePlacements(
       const balancingWords = pool.slice(0, 40);
       for (let b = 0; b < balancingWords.length; b++) {
         const region = b % 2 === 0 ? (preferLeft ? "left" : "right") : preferTop ? "top" : "bottom";
-        const seed = pickEmptySeedInRegion(region) ?? pickEmptySeed();
+        const seed = pickRegionSeed(region) ?? pickEmptySeed();
         const fs = shapeH * 0.008;
         if (place(balancingWords[b].word, fs, palette.light, 5, bodyFont, 400, seed, false)) {
           cyclePlacements++;
@@ -881,7 +900,7 @@ function computePlacements(
         while (occupiedCount / maskCellCount < occupancyMin && guard < 1200) {
           const w = pool[guard % pool.length];
           const fs = Math.max(MIN_FONT_PT, shapeH * 0.0065);
-          const seed = pickLargestEmptySeed(80) ?? pickEmptySeed();
+          const seed = pickInteriorSeed() ?? pickEmptySeed();
           if (place(w.word, fs, palette.light, 5, bodyFont, 400, seed, false)) cyclePlacements++;
           guard++;
         }
