@@ -285,16 +285,18 @@ const FALLBACK_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 
 </svg>`;
 
 const FALLBACK_CHEERLEADER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <circle cx="500" cy="150" r="86" fill="#000"/>
-  <ellipse cx="500" cy="375" rx="132" ry="208" fill="#000"/>
-  <ellipse cx="262" cy="326" rx="160" ry="64" transform="rotate(-12 262 326)" fill="#000"/>
-  <ellipse cx="738" cy="326" rx="160" ry="64" transform="rotate(12 738 326)" fill="#000"/>
-  <circle cx="145" cy="335" r="96" fill="#000"/>
-  <circle cx="855" cy="335" r="96" fill="#000"/>
-  <ellipse cx="410" cy="694" rx="72" ry="212" transform="rotate(-17 410 694)" fill="#000"/>
-  <ellipse cx="590" cy="694" rx="72" ry="212" transform="rotate(17 590 694)" fill="#000"/>
-  <ellipse cx="360" cy="900" rx="96" ry="42" fill="#000"/>
-  <ellipse cx="640" cy="900" rx="96" ry="42" fill="#000"/>
+  <circle cx="500" cy="150" r="84" fill="#000"/>
+  <ellipse cx="572" cy="122" rx="66" ry="46" transform="rotate(18 572 122)" fill="#000"/>
+  <ellipse cx="500" cy="360" rx="148" ry="206" fill="#000"/>
+  <ellipse cx="500" cy="498" rx="242" ry="124" fill="#000"/>
+  <ellipse cx="278" cy="312" rx="196" ry="70" transform="rotate(-14 278 312)" fill="#000"/>
+  <ellipse cx="722" cy="312" rx="196" ry="70" transform="rotate(14 722 312)" fill="#000"/>
+  <circle cx="132" cy="332" r="108" fill="#000"/>
+  <circle cx="868" cy="332" r="108" fill="#000"/>
+  <ellipse cx="408" cy="736" rx="86" ry="232" transform="rotate(-17 408 736)" fill="#000"/>
+  <ellipse cx="592" cy="736" rx="86" ry="232" transform="rotate(17 592 736)" fill="#000"/>
+  <ellipse cx="360" cy="930" rx="106" ry="38" fill="#000"/>
+  <ellipse cx="640" cy="930" rx="106" ry="38" fill="#000"/>
 </svg>`;
 
 const FALLBACK_MALE_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
@@ -320,13 +322,15 @@ const FALLBACK_BALLET_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" view
 </svg>`;
 
 const FALLBACK_LEAPING_GIRL_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <circle cx="560" cy="148" r="74" fill="#000"/>
-  <ellipse cx="560" cy="338" rx="112" ry="168" fill="#000"/>
-  <ellipse cx="352" cy="292" rx="166" ry="52" transform="rotate(-32 352 292)" fill="#000"/>
-  <ellipse cx="756" cy="260" rx="186" ry="56" transform="rotate(24 756 260)" fill="#000"/>
-  <ellipse cx="468" cy="684" rx="62" ry="236" transform="rotate(-30 468 684)" fill="#000"/>
-  <ellipse cx="710" cy="620" rx="58" ry="266" transform="rotate(44 710 620)" fill="#000"/>
-  <ellipse cx="866" cy="846" rx="76" ry="32" transform="rotate(32 866 846)" fill="#000"/>
+  <circle cx="560" cy="148" r="76" fill="#000"/>
+  <ellipse cx="620" cy="128" rx="60" ry="42" transform="rotate(22 620 128)" fill="#000"/>
+  <ellipse cx="560" cy="336" rx="124" ry="178" fill="#000"/>
+  <ellipse cx="560" cy="462" rx="204" ry="106" fill="#000"/>
+  <ellipse cx="338" cy="296" rx="184" ry="60" transform="rotate(-30 338 296)" fill="#000"/>
+  <ellipse cx="764" cy="266" rx="198" ry="62" transform="rotate(24 764 266)" fill="#000"/>
+  <ellipse cx="468" cy="696" rx="74" ry="244" transform="rotate(-28 468 696)" fill="#000"/>
+  <ellipse cx="708" cy="632" rx="70" ry="274" transform="rotate(42 708 632)" fill="#000"/>
+  <ellipse cx="878" cy="856" rx="84" ry="34" transform="rotate(28 878 856)" fill="#000"/>
 </svg>`;
 
 const FALLBACK_FEMALE_GYMNAST_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
