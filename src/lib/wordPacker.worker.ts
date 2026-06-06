@@ -177,9 +177,19 @@ function remapMaskForFrame(
   const { minX, minY, maxX, maxY } = computeMaskBounds(sourceMask, maskSize);
   const srcW = Math.max(1, maxX - minX + 1);
   const srcH = Math.max(1, maxY - minY + 1);
+  // Frameable scale mode: target 70–80% of page height (midpoint = 75%).
   const targetFill = clamp((targetFillMin + targetFillMax) / 2, 0.1, 0.98);
   const targetH = maskSize * targetFill;
-  const scale = targetH / srcH;
+  const scaleByH = targetH / srcH;
+  // Enforce minimum 5% margin on all sides: silhouette width must not exceed
+  // 90% of the canvas width. For wide silhouettes this prevents overflow/clipping
+  // and guarantees margins are always within the 5–15% range on every edge.
+  const MARGIN_MIN = 0.05;
+  const scaleByW = (maskSize * (1 - 2 * MARGIN_MIN)) / srcW;
+  // Use the smaller scale so both constraints are satisfied simultaneously,
+  // while keeping the silhouette as large as possible (never center a small
+  // silhouette inside a large empty page).
+  const scale = Math.min(scaleByH, scaleByW);
   const scaledW = srcW * scale;
   const scaledH = srcH * scale;
   const offsetX = (maskSize - scaledW) / 2;
