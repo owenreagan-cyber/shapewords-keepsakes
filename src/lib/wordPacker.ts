@@ -21,6 +21,15 @@ export interface PackOptions {
   centerBias: number; // 0-100
   emphasis: number; // 1-5
   etsyMode?: boolean;
+  invisibleShapeMode?: boolean;
+  silhouetteSimilarityThreshold?: number; // 0-1
+  occupancyMin?: number; // 0-1
+  occupancyTarget?: number; // 0-1
+  occupancyMax?: number; // 0-1
+  canvasHeightFillMin?: number; // 0-1
+  canvasHeightFillMax?: number; // 0-1
+  orientationHorizontalMin?: number; // 0-1
+  orientationHorizontalMax?: number; // 0-1
 }
 
 export interface PackResult {
@@ -32,6 +41,15 @@ export interface PackResult {
   nameAreaPct: number;
   accentRatio: number;
   balanceScore: number;
+  widthProfileScore: number;
+  heightProfileScore: number;
+  contourProfileScore: number;
+  regionOccupancyScore: number;
+  silhouetteSimilarity: number;
+  horizontalRatio: number;
+  verticalRatio: number;
+  dominantNameScore: number;
+  qualityPassed: boolean;
 }
 
 export interface PackPlacement {

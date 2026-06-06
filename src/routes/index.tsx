@@ -45,15 +45,20 @@ export const Route = createFileRoute("/")({
 
 const EXPORT_RES = {
   preview: { w: 1200, h: 1500, label: "1200px (Preview)" },
-  print: { w: 3000, h: 3750, label: "3000x3750px (8x10 @ 300 DPI)" },
+  print_8x10: { w: 2400, h: 3000, label: "8x10 @ 300 DPI" },
+  print_8_5x11: { w: 2550, h: 3300, label: "8.5x11 @ 300 DPI" },
+  print_11x14: { w: 3300, h: 4200, label: "11x14 @ 300 DPI" },
+  print_16x20: { w: 4800, h: 6000, label: "16x20 @ 300 DPI" },
   tall: { w: 1500, h: 3000, label: "1500x3000px (5x10 @ 300 DPI)" },
   ultra: { w: 6000, h: 12000, label: "6000x12000px (Ultra)" },
 };
 
-const ORIENTATION_OUTPUT_RES: Record<MaskOrientation, { w: number; h: number }> = {
-  portrait: { w: 2400, h: 3000 },
-  landscape: { w: 3000, h: 2400 },
-};
+const PRINTABLE_RESOLUTIONS = new Set<keyof typeof EXPORT_RES>([
+  "print_8x10",
+  "print_8_5x11",
+  "print_11x14",
+  "print_16x20",
+]);
 
 const ORIENTATION_OUTPUT_5X10: Record<MaskOrientation, { w: number; h: number }> = {
   portrait: { w: 1500, h: 3000 },
@@ -76,6 +81,13 @@ type Config = {
   resolution: keyof typeof EXPORT_RES;
   etsyMode: boolean;
   wordCount: number; // target number of words to pack (incl. name)
+  invisibleShapeMode: boolean;
+  silhouetteSimilarityThreshold: number;
+  occupancyMin: number;
+  occupancyTarget: number;
+  occupancyMax: number;
+  canvasHeightFillMin: number;
+  canvasHeightFillMax: number;
 };
 
 type QualityScores = {
@@ -88,6 +100,14 @@ type QualityScores = {
   overall: number;
   uniqueWords: number;
   duplicateWords: number;
+  silhouetteSimilarity: number;
+  widthProfile: number;
+  heightProfile: number;
+  contourProfile: number;
+  regionOccupancy: number;
+  horizontalRatio: number;
+  dominantNameScore: number;
+  passedQualityGate: boolean;
 };
 
 type RenderJob = {
@@ -118,9 +138,16 @@ function defaultConfig(s: Student): Config {
     silhouetteStyle: "Premium Print",
     outlineMode: "invisible",
     preset: "Premium Print",
-    resolution: "print",
+    resolution: "print_8x10",
     etsyMode: true,
     wordCount: 150,
+    invisibleShapeMode: true,
+    silhouetteSimilarityThreshold: 0.9,
+    occupancyMin: 0.88,
+    occupancyTarget: 0.92,
+    occupancyMax: 0.95,
+    canvasHeightFillMin: 0.7,
+    canvasHeightFillMax: 0.85,
   };
 }
 
@@ -128,8 +155,21 @@ function getCanvasSizeForResolution(
   resolution: keyof typeof EXPORT_RES,
   orientation: MaskOrientation,
 ): { w: number; h: number } {
-  if (resolution === "print") return ORIENTATION_OUTPUT_RES[orientation];
-  return EXPORT_RES[resolution];
+  const base = EXPORT_RES[resolution];
+  if (!PRINTABLE_RESOLUTIONS.has(resolution)) return base;
+  return orientation === "portrait" ? { w: base.w, h: base.h } : { w: base.h, h: base.w };
+}
+
+function passesFinalQualityGate(result: PackResult, config: Config): boolean {
+  return (
+    result.silhouetteSimilarity >= config.silhouetteSimilarityThreshold &&
+    result.coverage >= config.occupancyMin &&
+    result.coverage <= config.occupancyMax &&
+    result.horizontalRatio >= 0.75 &&
+    result.horizontalRatio <= 0.85 &&
+    result.dominantNameScore >= 1.08 &&
+    result.qualityPassed
+  );
 }
 
 function ShapeWordsApp() {
@@ -306,35 +346,64 @@ function ShapeWordsApp() {
 
       if (syncState) setPackingProgress(0);
       try {
-        const result = await packWordsWithWorker(
-          ctx,
-          effectiveMask.mask,
-          effectiveMask.size,
-          {
-            width: size.w,
-            height: size.h,
-            name: student.name,
-            words: wordSet,
-            theme: student.theme,
-            fontFamily: renderConfig.fontFamily,
-            bodyFontFamily: typography.bodyFont,
-            nameFontFamily: typography.nameFont,
-            accentColor: accent,
-            primaryColor: palette[0] ?? "#000000",
-            bgColor: "#FFFFFF",
-            palette,
-            density: renderConfig.density,
-            scaling: renderConfig.scaling,
-            adherence: renderConfig.adherence,
-            rotation: renderConfig.rotation,
-            randomness: renderConfig.randomness,
-            centerBias: renderConfig.centerBias,
-            emphasis: renderConfig.emphasis,
-            etsyMode: renderConfig.etsyMode,
-          },
-          onProgress ?? (syncState ? setPackingProgress : undefined),
-        );
-        if (renderConfig.outlineMode !== "invisible") {
+        const maxAttempts = renderConfig.etsyMode ? 6 : 3;
+        let result: PackResult | null = null;
+        let bestScore = -1;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const next = await packWordsWithWorker(
+            ctx,
+            effectiveMask.mask,
+            effectiveMask.size,
+            {
+              width: size.w,
+              height: size.h,
+              name: student.name,
+              words: wordSet,
+              theme: student.theme,
+              fontFamily: renderConfig.fontFamily,
+              bodyFontFamily: typography.bodyFont,
+              nameFontFamily: typography.nameFont,
+              accentColor: accent,
+              primaryColor: palette[0] ?? "#000000",
+              bgColor: "#FFFFFF",
+              palette,
+              density: renderConfig.density,
+              scaling: renderConfig.scaling,
+              adherence: renderConfig.adherence,
+              rotation: renderConfig.rotation,
+              randomness: renderConfig.randomness,
+              centerBias: renderConfig.centerBias,
+              emphasis: renderConfig.emphasis,
+              etsyMode: renderConfig.etsyMode,
+              invisibleShapeMode: renderConfig.invisibleShapeMode,
+              silhouetteSimilarityThreshold: renderConfig.silhouetteSimilarityThreshold,
+              occupancyMin: renderConfig.occupancyMin,
+              occupancyTarget: renderConfig.occupancyTarget,
+              occupancyMax: renderConfig.occupancyMax,
+              canvasHeightFillMin: renderConfig.canvasHeightFillMin,
+              canvasHeightFillMax: renderConfig.canvasHeightFillMax,
+              orientationHorizontalMin: 0.75,
+              orientationHorizontalMax: 0.85,
+            },
+            onProgress ?? (syncState ? setPackingProgress : undefined),
+          );
+          const nextScore =
+            next.silhouetteSimilarity * 100 +
+            next.widthProfileScore * 40 +
+            next.heightProfileScore * 40 +
+            next.contourProfileScore * 25 +
+            next.balanceScore * 0.1;
+          if (nextScore > bestScore) {
+            bestScore = nextScore;
+            result = next;
+          }
+          if (passesFinalQualityGate(next, renderConfig)) {
+            result = next;
+            break;
+          }
+        }
+        if (!result) throw new Error("Layout generation failed");
+        if (!renderConfig.invisibleShapeMode && renderConfig.outlineMode !== "invisible") {
           drawShapeOutline(
             ctx,
             svg,
@@ -537,9 +606,18 @@ function ShapeWordsApp() {
   const handleDownload = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    await renderToCanvas(canvas, ORIENTATION_OUTPUT_5X10[maskOrientation]);
-    const data = canvas.toDataURL("image/jpeg", 0.95);
-    triggerDownload(data, `${nameField}_WordArt_5x10_300dpi.jpg`);
+    try {
+      const result = await renderToCanvas(canvas, ORIENTATION_OUTPUT_5X10[maskOrientation]);
+      if (!result || !passesFinalQualityGate(result, config)) {
+        setStatus("Quality gate failed. Regenerate to improve silhouette/readability before export.");
+        await new Promise((r) => setTimeout(r, 1600));
+        return;
+      }
+      const data = canvas.toDataURL("image/jpeg", 0.95);
+      triggerDownload(data, `${nameField}_WordArt_5x10_300dpi.jpg`);
+    } finally {
+      setStatus(null);
+    }
   };
 
 
@@ -584,16 +662,19 @@ function ShapeWordsApp() {
         const mask = await buildMaskFromSvg(svg, 512);
 
         setPackingProgress(0);
-        await renderWordArt({
+        const result = await renderWordArt({
           canvas: off,
           student: s,
           config: studentConfig,
-          size: ORIENTATION_OUTPUT_RES[orientation],
+          size: getCanvasSizeForResolution(studentConfig.resolution, orientation),
           svg,
           words: expansion?.words?.length ? expansion.words : seedFromTraits(s.name, s.traits),
           mask,
           onProgress: setPackingProgress,
         });
+        if (!result || !passesFinalQualityGate(result, studentConfig)) {
+          throw new Error(`Quality gate failed for ${s.name}`);
+        }
         const blob = await canvasToBlob(off, "image/jpeg", 0.95);
         zip.file(`${toSafeFilenamePart(s.name)}_WordArt_8x10_300dpi.jpg`, blob);
       }
@@ -661,6 +742,39 @@ function ShapeWordsApp() {
                   "thin",
                   "decorative",
                 ]}
+              />
+            </Field>
+            <label className="flex items-center justify-between text-xs text-foreground">
+              <span className="label-mini">Invisible Shape Mask</span>
+              <input
+                type="checkbox"
+                checked={config.invisibleShapeMode}
+                onChange={(e) =>
+                  setConfig((c) => ({
+                    ...c,
+                    invisibleShapeMode: e.target.checked,
+                  }))
+                }
+                className="accent-amber-accent"
+              />
+            </label>
+            <Field label="Silhouette Similarity Threshold">
+              <input
+                type="number"
+                min={0.8}
+                max={0.99}
+                step={0.01}
+                value={config.silhouetteSimilarityThreshold}
+                onChange={(e) => {
+                  const n = Number.parseFloat(e.target.value);
+                  setConfig((c) => ({
+                    ...c,
+                    silhouetteSimilarityThreshold: Number.isFinite(n)
+                      ? Math.min(0.99, Math.max(0.8, n))
+                      : c.silhouetteSimilarityThreshold,
+                  }));
+                }}
+                className={inputCls}
               />
             </Field>
           </Section>
@@ -826,7 +940,10 @@ function ShapeWordsApp() {
                 }
                 options={[
                   { value: "preview", label: EXPORT_RES.preview.label },
-                  { value: "print", label: EXPORT_RES.print.label },
+                  { value: "print_8x10", label: EXPORT_RES.print_8x10.label },
+                  { value: "print_8_5x11", label: EXPORT_RES.print_8_5x11.label },
+                  { value: "print_11x14", label: EXPORT_RES.print_11x14.label },
+                  { value: "print_16x20", label: EXPORT_RES.print_16x20.label },
                   { value: "tall", label: EXPORT_RES.tall.label },
                   { value: "ultra", label: EXPORT_RES.ultra.label },
                 ]}
@@ -848,6 +965,14 @@ function ShapeWordsApp() {
             {quality && (
               <div className="px-3 py-1.5 bg-panel border border-panel-border">
                 <span className="label-mini">Quality {Math.round(quality.overall)}</span>
+              </div>
+            )}
+            {quality && (
+              <div className="px-3 py-1.5 bg-panel border border-panel-border">
+                <span className="label-mini">
+                  Silhouette {Math.round(quality.silhouetteSimilarity)}% ·{" "}
+                  {quality.passedQualityGate ? "PASS" : "RETRY"}
+                </span>
               </div>
             )}
           </div>
@@ -1337,13 +1462,17 @@ function scoreLayout(result: PackResult, words: WordEntry[], config: Config): Qu
   const sourceUnique = new Set(words.map((w) => w.word.toLowerCase())).size;
   const sourceDiversity = clamp((sourceUnique / 220) * 100, 0, 100);
   const wordDiversity = clamp(sourceDiversity * 0.6 + result.diversityScore * 0.4, 0, 100);
-  const coverage = clamp(100 - Math.abs(result.coverage - 0.94) * 320, 0, 100);
+  const targetCoverage = (config.occupancyMin + config.occupancyTarget) / 2;
+  const coverage = clamp(100 - Math.abs(result.coverage - targetCoverage) * 420, 0, 100);
   const typography =
     clamp(100 - Math.abs(result.nameAreaPct - 11.5) * 5, 0, 100) * 0.6 +
     clamp(100 - Math.abs(result.accentRatio - 15) * 4, 0, 100) * 0.4;
-  const shapeRecognition = clamp(result.coverage * 100 * 0.6 + result.balanceScore * 0.4, 0, 100);
+  const shapeRecognition = clamp(result.silhouetteSimilarity * 100 * 0.7 + result.balanceScore * 0.3, 0, 100);
   const printQuality = clamp(
-    92 - Math.max(0, result.duplicateCount - 6) * 0.15 - (config.etsyMode ? 0 : 3),
+    92 -
+      Math.max(0, result.duplicateCount - 6) * 0.15 -
+      (config.etsyMode ? 0 : 3) +
+      (result.qualityPassed ? 2 : -8),
     0,
     100,
   );
@@ -1365,6 +1494,14 @@ function scoreLayout(result: PackResult, words: WordEntry[], config: Config): Qu
     overall,
     uniqueWords: sourceUnique,
     duplicateWords: result.duplicateCount,
+    silhouetteSimilarity: result.silhouetteSimilarity * 100,
+    widthProfile: result.widthProfileScore * 100,
+    heightProfile: result.heightProfileScore * 100,
+    contourProfile: result.contourProfileScore * 100,
+    regionOccupancy: result.regionOccupancyScore * 100,
+    horizontalRatio: result.horizontalRatio * 100,
+    dominantNameScore: result.dominantNameScore,
+    passedQualityGate: passesFinalQualityGate(result, config),
   };
 }
 
