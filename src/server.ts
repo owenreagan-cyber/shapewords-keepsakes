@@ -1,5 +1,7 @@
 import "./lib/error-capture";
 
+import process from "node:process";
+
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 
@@ -16,6 +18,16 @@ async function getServerEntry(): Promise<ServerEntry> {
     );
   }
   return serverEntryPromise;
+}
+
+function hydrateProcessEnv(env: unknown) {
+  if (!env || typeof env !== "object") return;
+
+  for (const [key, value] of Object.entries(env as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      process.env[key] = value;
+    }
+  }
 }
 
 // h3 swallows in-handler throws into a normal 500 Response with body
@@ -40,6 +52,7 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      hydrateProcessEnv(env);
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
