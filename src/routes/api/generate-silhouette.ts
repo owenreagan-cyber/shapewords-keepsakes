@@ -2,17 +2,30 @@ import { createFileRoute } from "@tanstack/react-router";
 
 const GATEWAY = "https://ai.gateway.lovable.dev/v1/images/generations";
 
-function buildPrompt(shape: string, style: string): string {
-  return `A bold, solid pure-black silhouette of: ${shape}.
-Style: ${style}. Print-quality keepsake silhouette art.
-
-STRICT REQUIREMENTS:
-- Pure white (#FFFFFF) background, edge to edge.
-- Single solid black (#000000) silhouette only — NO outlines, NO shading, NO gradients, NO patterns, NO text, NO watermark, NO border.
-- The subject must be INSTANTLY RECOGNIZABLE: include all characteristic features (ears, snout, eyes negative-space if needed, arms, legs, paws, tail, accessories) in a classic iconic pose.
-- Chunky, thickened, plush-toy proportions so the silhouette has lots of internal area for text packing. No thin spindly limbs.
-- Centered. Subject fills ~80% of a 1:1 square frame.
-- Crisp clean edges. Flat 2D vector look. No 3D rendering. No photograph.`;
+function buildPrompt(shape: string): string {
+  return [
+    `SUBJECT: ${shape}`,
+    "",
+    "Create a single bold black silhouette on a pure white background.",
+    "",
+    "MANDATORY VISUAL RULES — follow every one exactly:",
+    "1. Background: pure white #FFFFFF, edge to edge, no gray, no cream, no texture.",
+    "2. Silhouette: pure black #000000 only. Zero gray. Zero anti-aliasing halos. Zero shadows.",
+    "3. The silhouette must be INSTANTLY recognizable to a 10-year-old child.",
+    "   - Include all defining features: head shape, limbs, pose, any equipment.",
+    "   - If a person: show the full body with clear head, torso, arms, legs in an active pose.",
+    "   - If an athlete: show the sport-defining action (swing, kick, catch, skate stride).",
+    "   - If an animal: show the characteristic pose (galloping, sitting, flying).",
+    "4. Proportions: chunky and bold. Limbs must be thick (minimum 8% of body width).",
+    "   No wire-thin arms or spindly legs — they will be unreadable at small sizes.",
+    "5. The silhouette fills 75–85% of the square canvas. Centered.",
+    "6. Flat 2D graphic style. No shading, no gradients, no 3D rendering.",
+    "7. Crisp hard edges. Where black meets white, the edge must be sharp — not blurry.",
+    "8. Single connected shape. No floating disconnected pieces.",
+    "9. No text, no watermarks, no borders, no decorative frames.",
+    "10. This will be used as a stencil mask for word-art typography. Interior area is critical.",
+    "    The shape must have large fillable interior regions — not just an outline.",
+  ].join("\n");
 }
 
 export const Route = createFileRoute("/api/generate-silhouette")({
@@ -30,12 +43,11 @@ export const Route = createFileRoute("/api/generate-silhouette")({
           return Response.json({ error: "Invalid JSON" }, { status: 400 });
         }
         const shape = (body.shape || "").trim().slice(0, 300);
-        const style = (body.style || "Premium Print").trim().slice(0, 100);
         if (!shape) {
           return Response.json({ error: "Missing shape" }, { status: 400 });
         }
 
-        const prompt = buildPrompt(shape, style);
+        const prompt = buildPrompt(shape);
         const upstream = await fetch(GATEWAY, {
           method: "POST",
           headers: {
@@ -46,7 +58,7 @@ export const Route = createFileRoute("/api/generate-silhouette")({
             model: "openai/gpt-image-2",
             prompt,
             size: "1024x1024",
-            quality: "low",
+            quality: "medium",
             n: 1,
           }),
         });
