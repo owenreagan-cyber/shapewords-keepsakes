@@ -258,43 +258,71 @@ export async function callShapeGen(shapeDescription: string, style: string): Pro
   }
   const data = (await res.json()) as { dataUrl?: string };
   if (!data.dataUrl) throw new Error("Silhouette route returned no dataUrl");
-  setCachedShape(cacheKey, data.dataUrl);
-  return data.dataUrl;
+  const cleaned = await thresholdImageMask(data.dataUrl);
+  setCachedShape(cacheKey, cleaned);
+  return cleaned;
+}
+
+/**
+ * Takes a PNG data URL from GPT-Image-2 and returns a cleaned version
+ * where every pixel is either pure black (>=50% dark) or pure white.
+ * This eliminates gray anti-aliasing that corrupts mask quality.
+ */
+export async function thresholdImageMask(dataUrl: string): Promise<string> {
+  if (typeof Image === "undefined" || typeof document === "undefined") {
+    return dataUrl;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+
+      // White background first
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) * (a / 255);
+        const isShape = luminance < 102;
+        data[i] = isShape ? 0 : 255;
+        data[i + 1] = isShape ? 0 : 255;
+        data[i + 2] = isShape ? 0 : 255;
+        data[i + 3] = 255;
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL("image/png", 1.0));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 // Fallback heart shape
 export const FALLBACK_HEART_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M500 880 C 200 680 60 480 60 320 C 60 180 170 80 290 80 C 380 80 450 130 500 220 C 550 130 620 80 710 80 C 830 80 940 180 940 320 C 940 480 800 680 500 880 Z"/></svg>`;
 
-const FALLBACK_HUMAN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <circle cx="500" cy="130" r="95" fill="#000"/>
-  <ellipse cx="500" cy="390" rx="180" ry="220" fill="#000"/>
-  <ellipse cx="240" cy="300" rx="190" ry="70" transform="rotate(-22 240 300)" fill="#000"/>
-  <ellipse cx="760" cy="300" rx="190" ry="70" transform="rotate(22 760 300)" fill="#000"/>
-  <ellipse cx="360" cy="690" rx="78" ry="215" transform="rotate(-25 360 690)" fill="#000"/>
-  <ellipse cx="640" cy="690" rx="78" ry="215" transform="rotate(25 640 690)" fill="#000"/>
-</svg>`;
+const FALLBACK_HUMAN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M500 55 C 560 55 610 105 610 165 C 610 205 588 241 555 260 C 635 280 700 330 735 405 L 900 375 C 928 370 955 390 955 420 C 955 445 935 468 910 473 L 770 502 C 773 520 775 540 775 560 C 775 598 752 630 716 646 L 642 680 C 668 735 690 805 705 888 C 710 918 685 945 655 940 C 628 935 610 912 610 886 C 605 820 595 768 578 725 C 553 741 527 750 500 750 C 473 750 447 741 422 725 C 405 768 395 820 390 886 C 390 912 372 935 345 940 C 315 945 290 918 295 888 C 310 805 332 735 358 680 L 284 646 C 248 630 225 598 225 560 C 225 540 227 520 230 502 L 90 473 C 65 468 45 445 45 420 C 45 390 72 370 100 375 L 265 405 C 300 330 365 280 445 260 C 412 241 390 205 390 165 C 390 105 440 55 500 55 Z"/></svg>`;
 
-const FALLBACK_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <circle cx="545" cy="145" r="82" fill="#000"/>
-  <ellipse cx="545" cy="355" rx="128" ry="195" fill="#000"/>
-  <ellipse cx="300" cy="290" rx="180" ry="58" transform="rotate(-26 300 290)" fill="#000"/>
-  <ellipse cx="760" cy="292" rx="175" ry="56" transform="rotate(27 760 292)" fill="#000"/>
-  <ellipse cx="430" cy="648" rx="62" ry="220" transform="rotate(-34 430 648)" fill="#000"/>
-  <ellipse cx="690" cy="664" rx="64" ry="224" transform="rotate(28 690 664)" fill="#000"/>
-  <ellipse cx="758" cy="874" rx="92" ry="38" transform="rotate(14 758 874)" fill="#000"/>
-</svg>`;
+const FALLBACK_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M555 70 C 610 70 655 115 655 170 C 655 205 637 236 610 255 C 650 265 684 288 710 320 L 890 252 C 918 242 947 260 952 290 C 956 316 940 340 915 350 L 750 415 C 770 455 780 500 780 548 C 780 586 756 620 720 635 L 650 664 C 680 742 726 820 795 900 C 812 920 810 950 790 965 C 768 980 737 975 720 955 C 645 870 585 785 540 700 C 512 715 483 720 455 714 L 360 892 C 345 920 313 930 285 914 C 260 898 252 867 266 842 L 350 678 C 316 658 290 626 282 586 L 180 622 C 152 632 123 616 118 586 C 114 560 130 536 155 526 L 272 484 C 274 426 294 372 330 328 C 360 292 402 268 448 260 C 416 242 395 207 395 170 C 395 115 440 70 495 70 C 518 70 538 78 555 92 Z"/></svg>`;
 
 const FALLBACK_CHEERLEADER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M500 60 C 555 60 595 100 595 160 C 595 195 580 222 558 240 C 600 232 640 220 680 200 C 740 170 800 130 860 100 C 890 86 920 110 915 145 C 905 210 850 270 780 305 C 720 335 660 350 600 360 C 660 380 700 430 720 500 C 735 560 730 620 705 670 C 690 700 660 715 630 705 C 615 700 605 690 600 678 C 605 720 600 760 580 790 C 560 820 540 822 525 760 C 515 720 515 680 520 640 C 480 645 440 645 400 640 C 405 680 405 720 395 760 C 380 822 360 820 340 790 C 320 760 315 720 320 678 C 315 690 305 700 290 705 C 260 715 230 700 215 670 C 190 620 185 560 200 500 C 220 430 260 380 320 360 C 260 350 200 335 140 305 C 70 270 15 210 5 145 C 0 110 30 86 60 100 C 120 130 180 170 240 200 C 280 220 320 232 362 240 C 340 222 325 195 325 160 C 325 100 365 60 420 60 C 445 60 470 65 490 75 Z"/></svg>`;
 
-const FALLBACK_MALE_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <circle cx="470" cy="140" r="78" fill="#000"/>
-  <ellipse cx="470" cy="352" rx="145" ry="208" fill="#000"/>
-  <ellipse cx="255" cy="320" rx="188" ry="68" transform="rotate(-18 255 320)" fill="#000"/>
-  <ellipse cx="706" cy="252" rx="196" ry="66" transform="rotate(34 706 252)" fill="#000"/>
-  <ellipse cx="390" cy="708" rx="84" ry="230" transform="rotate(-20 390 708)" fill="#000"/>
-  <ellipse cx="642" cy="650" rx="82" ry="250" transform="rotate(30 642 650)" fill="#000"/>
-  <ellipse cx="742" cy="878" rx="112" ry="42" transform="rotate(12 742 878)" fill="#000"/>
-</svg>`;
+const FALLBACK_MALE_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M470 70 C 523 70 565 112 565 165 C 565 198 549 227 524 246 C 572 258 614 286 646 326 L 860 212 C 888 197 922 207 938 236 C 952 264 941 297 914 312 L 710 422 C 732 462 745 510 745 560 C 745 598 722 632 686 648 L 618 678 C 650 760 710 834 805 900 C 832 918 838 954 818 978 C 798 1000 764 1006 739 987 C 629 905 551 816 505 720 C 486 725 466 726 447 724 L 408 880 C 400 912 368 934 336 925 C 304 916 284 884 292 852 L 330 699 C 305 683 285 660 274 632 L 120 680 C 88 690 54 672 45 640 C 36 608 54 575 86 565 L 264 510 C 266 466 275 422 294 382 C 322 324 369 280 424 258 C 392 239 370 205 370 165 C 370 112 412 70 465 70 Z"/></svg>`;
 
 const FALLBACK_BALLET_DANCER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M260 220 C 260 165 305 120 360 120 C 415 120 460 165 460 220 C 460 250 448 277 428 295 C 460 305 490 320 515 345 L 870 110 C 900 90 935 115 925 150 C 918 175 900 195 875 215 L 595 425 C 620 470 635 525 635 585 C 670 580 705 590 735 615 L 970 800 C 1000 825 985 870 945 868 L 540 860 C 510 858 485 838 475 808 C 460 760 440 720 410 685 C 380 760 360 835 350 905 C 345 935 320 950 295 935 C 270 920 260 890 270 860 C 290 780 320 700 360 625 C 330 590 305 545 290 495 C 270 430 270 365 295 305 C 275 287 260 256 260 220 Z"/></svg>`;
 
@@ -314,30 +342,7 @@ const FALLBACK_SOCCER_GOALIE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" view
 
 const FALLBACK_ICE_HOCKEY_PLAYER_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M255 195 C 255 135 305 85 365 85 C 425 85 475 135 475 195 C 475 220 467 243 453 262 L 530 250 C 555 246 580 256 595 277 L 690 410 L 880 200 C 898 180 928 180 945 200 C 962 220 962 250 945 270 L 745 510 L 990 920 C 1005 945 985 975 957 970 L 700 925 C 680 922 663 910 655 892 L 590 760 C 615 850 615 940 595 970 C 585 985 565 988 552 975 L 478 905 L 415 950 C 392 968 358 955 350 928 L 320 820 C 285 850 245 870 200 875 L 60 890 C 30 893 10 865 22 838 L 80 720 C 100 678 140 650 185 645 L 250 638 L 175 415 C 165 388 180 358 208 350 L 280 332 C 268 312 262 288 262 262 C 262 245 265 230 270 215 Z"/></svg>`;
 
-// Chunky front-facing teddy bear: head with rounded ears + muzzle, body, arms hanging
-// at sides, legs with paws. Designed for word-packing fill (big interior area).
-const FALLBACK_BEAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
-  <!-- Ears (outer + inner kept solid for silhouette) -->
-  <circle cx="280" cy="190" r="115" fill="#000"/>
-  <circle cx="720" cy="190" r="115" fill="#000"/>
-  <!-- Head -->
-  <ellipse cx="500" cy="290" rx="245" ry="215" fill="#000"/>
-  <!-- Muzzle bulge (keeps silhouette readable as a bear face) -->
-  <ellipse cx="500" cy="370" rx="150" ry="105" fill="#000"/>
-  <!-- Neck wedge -->
-  <rect x="430" y="450" width="140" height="80" fill="#000"/>
-  <!-- Body (rounded, wide for word packing) -->
-  <ellipse cx="500" cy="690" rx="305" ry="270" fill="#000"/>
-  <!-- Arms hanging at sides -->
-  <ellipse cx="215" cy="640" rx="105" ry="180" fill="#000"/>
-  <ellipse cx="785" cy="640" rx="105" ry="180" fill="#000"/>
-  <!-- Paws on arms -->
-  <circle cx="215" cy="820" r="92" fill="#000"/>
-  <circle cx="785" cy="820" r="92" fill="#000"/>
-  <!-- Feet -->
-  <ellipse cx="370" cy="930" rx="130" ry="62" fill="#000"/>
-  <ellipse cx="630" cy="930" rx="130" ry="62" fill="#000"/>
-</svg>`;
+const FALLBACK_BEAR_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M270 160 C 315 145 360 170 380 210 C 420 165 475 140 535 140 C 595 140 650 165 690 210 C 710 170 755 145 800 160 C 855 178 885 240 867 295 C 857 326 834 352 805 366 C 820 402 830 442 832 484 C 900 532 940 612 940 700 C 940 835 830 945 695 945 C 638 945 586 925 545 892 C 518 905 488 912 458 912 C 428 912 398 905 371 892 C 330 925 278 945 221 945 C 86 945 -24 835 -24 700 C -24 612 16 532 84 484 C 86 442 96 402 111 366 C 82 352 59 326 49 295 C 31 240 61 178 116 160 C 161 145 206 158 240 188 C 248 176 258 167 270 160 Z M 255 560 C 183 560 125 618 125 690 C 125 762 183 820 255 820 C 327 820 385 762 385 690 C 385 618 327 560 255 560 Z M 665 560 C 593 560 535 618 535 690 C 535 762 593 820 665 820 C 737 820 795 762 795 690 C 795 618 737 560 665 560 Z"/></svg>`;
 
 const FALLBACK_ANIMAL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000"><path fill="#000" d="M780 240 C 810 200 855 190 895 215 C 935 240 950 290 935 335 L 905 425 C 945 480 960 545 945 615 L 920 760 C 915 790 935 815 925 845 L 905 905 C 895 935 858 940 838 915 L 800 870 C 770 875 740 875 710 870 L 700 905 C 690 935 658 945 638 920 L 600 875 C 540 880 480 880 420 875 L 388 920 C 368 945 335 935 325 905 L 312 870 C 282 875 252 870 225 858 L 200 925 C 188 950 152 950 140 925 L 105 855 C 85 845 75 825 78 802 L 95 670 C 65 640 50 600 55 555 L 75 415 C 88 320 162 245 258 230 L 300 224 C 280 200 275 165 290 138 C 312 100 360 88 395 110 L 460 150 C 510 145 560 145 610 152 L 690 168 C 720 175 745 195 760 220 Z"/></svg>`;
 
